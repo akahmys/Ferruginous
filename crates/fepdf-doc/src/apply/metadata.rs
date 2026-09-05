@@ -155,12 +155,94 @@ pub fn apply_create_portfolio(doc: &Document, portfolio: PortfolioCollection) ->
     Ok(())
 }
 
+/// How deep an outline may nest before it is refused.
+///
+/// **The depth here does not come from a file**, which is what makes this tree different
+/// from every other one the engine walks. `Operation` is a caller's value: the parser's
+/// 512-level limit bounds everything that starts from bytes and is not in this path.
+///
+/// **This bound is on Rule 6's terms and not on a demonstrated crash, and the difference
+/// is worth stating** — the sweep that found it recorded a stack overflow at ten thousand
+/// levels, and measuring where that overflow actually was moved it somewhere else. What
+/// is measured, 2026-09-05:
+///
+/// | | |
+/// | :--- | :--- |
+/// | `serde_json` refuses an `OutlineNode` past **62** levels | so `fepdf-mcp`, the only caller that deserialises one, cannot reach this at all |
+/// | `OutlineNode`'s derived `Drop` overflows the stack between **5,000** and **10,000** | so a Rust caller that builds one that deep aborts when the value is released, whatever this function does |
+///
+/// The recursion sat between those two numbers, which is why nothing had crashed here.
+/// It is bounded anyway, because "no caller can currently reach it" is a fact about
+/// today's callers and Rule 6 is not conditional on one. Sixty-four is what the
+/// field-tree and `/Next` walks use.
+///
+/// The `Drop` cliff is **not** fixed by this and belongs to the type: a manual `Drop` for
+/// `OutlineNode` in `fepdf-model` is what would move it, and that is a change to a public
+/// type rather than to this walk.
+const MAX_OUTLINE_DEPTH: usize = 64;
+
+/// Builds one level of the outline and every level below it.
+///
+/// Refuses past [`MAX_OUTLINE_DEPTH`] rather than truncating: an outline silently missing
+/// the levels a caller asked for is worse than one the caller is told was not built.
+/// Fills in one outline item's dictionary, and every level below it.
+///
+/// Split out of [`build_outline_level`] to keep that under RR-15 Rule 1's fifty lines
+/// once it took a depth. `where` carries the three handles the siblings decide:
+/// this item's index, its parent, and its own object handle.
+fn build_outline_item(
+    doc: &Document,
+    node: &OutlineNode,
+    siblings: &[(DictHandle, Handle<Object>)],
+    where_: (usize, Handle<Object>, Handle<Object>),
+    depth: usize,
+) -> PdfResult<usize> {
+    let arena = doc.arena();
+    let (index, parent_h, self_h) = where_;
+    let mut dict = BTreeMap::new();
+    dict.insert(arena.name("Title"), Object::String(Bytes::from(node.title.clone())));
+    dict.insert(arena.name("Parent"), Object::Reference(parent_h));
+
+    if index > 0 {
+        dict.insert(arena.name("Prev"), Object::Reference(siblings[index - 1].1));
+    }
+    if index + 1 < siblings.len() {
+        dict.insert(arena.name("Next"), Object::Reference(siblings[index + 1].1));
+    }
+
+    if let Some(page_h) = doc.get_page_handle(node.destination_page) {
+        let dest_items = vec![Object::Reference(page_h), Object::Name(arena.name("Fit"))];
+        let dest_ah = arena.alloc_array(dest_items);
+        dict.insert(arena.name("Dest"), Object::Array(dest_ah));
+    }
+
+    let below = if node.children.is_empty() {
+        0
+    } else {
+        let (first_child_h, last_child_h, child_count) =
+            build_outline_level(doc, &node.children, self_h, depth + 1)?;
+        dict.insert(arena.name("First"), Object::Reference(first_child_h));
+        dict.insert(arena.name("Last"), Object::Reference(last_child_h));
+        dict.insert(arena.name("Count"), Object::Integer(child_count as i64));
+        child_count
+    };
+
+    arena.set_dict(siblings[index].0, dict);
+    Ok(below)
+}
+
 fn build_outline_level(
     doc: &Document,
     nodes: &[OutlineNode],
     parent_h: Handle<Object>,
+    depth: usize,
 ) -> PdfResult<(Handle<Object>, Handle<Object>, usize)> {
     let arena = doc.arena();
+    if depth >= MAX_OUTLINE_DEPTH {
+        return Err(PdfError::Other(
+            format!("the outline nests deeper than {MAX_OUTLINE_DEPTH} levels").into(),
+        ));
+    }
     if nodes.is_empty() {
         return Err(PdfError::Other("Empty outline level".into()));
     }
@@ -174,34 +256,8 @@ fn build_outline_level(
         handles.push((dh, h));
     }
 
-    for (i, (node, &(dh, h))) in nodes.iter().zip(handles.iter()).enumerate() {
-        let mut dict = BTreeMap::new();
-        dict.insert(arena.name("Title"), Object::String(Bytes::from(node.title.clone())));
-        dict.insert(arena.name("Parent"), Object::Reference(parent_h));
-
-        if i > 0 {
-            dict.insert(arena.name("Prev"), Object::Reference(handles[i - 1].1));
-        }
-        if i + 1 < handles.len() {
-            dict.insert(arena.name("Next"), Object::Reference(handles[i + 1].1));
-        }
-
-        if let Some(page_h) = doc.get_page_handle(node.destination_page) {
-            let dest_items = vec![Object::Reference(page_h), Object::Name(arena.name("Fit"))];
-            let dest_ah = arena.alloc_array(dest_items);
-            dict.insert(arena.name("Dest"), Object::Array(dest_ah));
-        }
-
-        if !node.children.is_empty() {
-            let (first_child_h, last_child_h, child_count) =
-                build_outline_level(doc, &node.children, h)?;
-            dict.insert(arena.name("First"), Object::Reference(first_child_h));
-            dict.insert(arena.name("Last"), Object::Reference(last_child_h));
-            dict.insert(arena.name("Count"), Object::Integer(child_count as i64));
-            total_count += child_count;
-        }
-
-        arena.set_dict(dh, dict);
+    for (i, (node, &(_, h))) in nodes.iter().zip(handles.iter()).enumerate() {
+        total_count += build_outline_item(doc, node, &handles, (i, parent_h, h), depth)?;
     }
 
     let first_h = handles[0].1;
@@ -227,7 +283,7 @@ pub fn apply_update_outlines(doc: &Document, outlines: OutlineTree) -> PdfResult
     let outlines_root_dh = arena.alloc_dict(outlines_root_dict);
     let outlines_root_h = arena.alloc_object(Object::Dictionary(outlines_root_dh));
 
-    let (first_h, last_h, count) = build_outline_level(doc, &outlines.items, outlines_root_h)?;
+    let (first_h, last_h, count) = build_outline_level(doc, &outlines.items, outlines_root_h, 0)?;
 
     let mut root_d = arena.get_dict(outlines_root_dh).unwrap_or_default();
     root_d.insert(arena.name("First"), Object::Reference(first_h));

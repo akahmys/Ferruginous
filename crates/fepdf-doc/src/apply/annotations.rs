@@ -583,12 +583,38 @@ fn apply_value_to_field_dict(
     }
 }
 
+/// How deep a `/Kids` field tree is searched before it is taken to be looping.
+///
+/// The same 64 the field-tree walk in `fepdf-model::actions` uses, and a depth rather
+/// than a visited set for the reason [ADR-0060] gives: a tree gets a number.
+///
+/// [ADR-0060]: ../../../../docs/adr/0060-a-reference-chain-is-bounded-by-what-it-has-seen.md
+const MAX_FIELD_DEPTH: usize = 64;
+
+/// Finds the field named `target_name` under `field_dh` and sets it.
+///
+/// **Bounded since 2026-09-05.** A field whose `/Kids` named an ancestor made the search
+/// follow it forever, and a name no field carries is what makes the search visit
+/// everything: `Operation::SetFormFieldValue` aborted the process. RR-15 Rule 6.
 fn update_form_field_value_in_dict(
     arena: &PdfArena,
     field_dh: Handle<BTreeMap<Handle<PdfName>, Object>>,
     target_name: &str,
     new_value: &FormValue,
 ) -> bool {
+    update_form_field_value_at(arena, field_dh, target_name, new_value, 0)
+}
+
+fn update_form_field_value_at(
+    arena: &PdfArena,
+    field_dh: Handle<BTreeMap<Handle<PdfName>, Object>>,
+    target_name: &str,
+    new_value: &FormValue,
+    depth: usize,
+) -> bool {
+    if depth >= MAX_FIELD_DEPTH {
+        return false;
+    }
     let Some(mut dict) = arena.get_dict(field_dh) else { return false };
     let t_key = arena.name("T");
     let name_matches = dict.get(&t_key).and_then(|obj| match obj {
@@ -618,7 +644,7 @@ fn update_form_field_value_in_dict(
         for kid in kids {
             if let Some(kh) = kid.as_reference()
                 && let Some(Object::Dictionary(kdh)) = arena.get_object(kh)
-                && update_form_field_value_in_dict(arena, kdh, target_name, new_value)
+                && update_form_field_value_at(arena, kdh, target_name, new_value, depth + 1)
             {
                 return true;
             }

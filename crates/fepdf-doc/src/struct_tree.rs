@@ -62,11 +62,67 @@ pub(crate) fn resolve_to_node_handle(arena: &PdfArena, obj: &Object) -> Option<H
     }
 }
 
+/// How deep a `/K` chain is followed before it is taken to be looping.
+///
+/// The same 64 as the field-tree and `/Next` walks in `fepdf-model`, and a depth rather
+/// than a visited set for the reason [ADR-0060] gives: this is a tree, where meeting the
+/// same node twice can be legitimate, and a set would prune what it should keep.
+///
+/// [ADR-0060]: ../../../docs/adr/0060-a-reference-chain-is-bounded-by-what-it-has-seen.md
+const MAX_STRUCTURE_DEPTH: usize = 64;
+
+/// Removes `target_handle` from wherever it hangs under `parent_handle`.
+///
+/// **Bounded since 2026-09-05.** A structure tree whose `/K` named an ancestor made this
+/// follow it forever: `Operation::DeleteStructElem` with a handle no element carries has
+/// to exhaust the tree, and `fatal runtime error: stack overflow` is what it did instead.
+/// RR-15 Rule 6, whose enforcement column says "Code review".
 pub(crate) fn delete_struct_node(
     arena: &PdfArena,
     parent_handle: Handle<Object>,
     target_handle: Handle<Object>,
 ) -> bool {
+    delete_struct_node_at(arena, parent_handle, target_handle, 0)
+}
+
+/// The kids of one node with `target_handle` gone, or `None` if it was not under them.
+///
+/// Split out of [`delete_struct_node_at`] to keep that under RR-15 Rule 1's fifty lines
+/// once it took a depth, not because the two do different jobs.
+fn delete_from_kids(
+    arena: &PdfArena,
+    kids: &[Object],
+    target_handle: Handle<Object>,
+    depth: usize,
+) -> Option<Vec<Object>> {
+    let mut removed = false;
+    let mut kept = Vec::new();
+    for kid in kids {
+        let Some(kid_ref) = resolve_to_node_handle(arena, kid) else {
+            kept.push(kid.clone());
+            continue;
+        };
+        if kid_ref == target_handle {
+            removed = true;
+            continue;
+        }
+        if delete_struct_node_at(arena, kid_ref, target_handle, depth + 1) {
+            removed = true;
+        }
+        kept.push(kid.clone());
+    }
+    removed.then_some(kept)
+}
+
+fn delete_struct_node_at(
+    arena: &PdfArena,
+    parent_handle: Handle<Object>,
+    target_handle: Handle<Object>,
+    depth: usize,
+) -> bool {
+    if depth >= MAX_STRUCTURE_DEPTH {
+        return false;
+    }
     let Some(obj) = arena.get_object(parent_handle) else {
         return false;
     };
@@ -88,29 +144,14 @@ pub(crate) fn delete_struct_node(
             dict.remove(&k_key);
             removed = true;
         } else {
-            removed = delete_struct_node(arena, kid_ref, target_handle);
+            removed = delete_struct_node_at(arena, kid_ref, target_handle, depth + 1);
         }
     } else if let Object::Array(ah) = kids_obj.resolve(arena)
         && let Some(array) = arena.get_array(ah)
+        && let Some(kept) = delete_from_kids(arena, &array, target_handle, depth)
     {
-        let mut new_kids = Vec::new();
-        for kid in array {
-            if let Some(kid_ref) = resolve_to_node_handle(arena, &kid) {
-                if kid_ref == target_handle {
-                    removed = true;
-                } else {
-                    if delete_struct_node(arena, kid_ref, target_handle) {
-                        removed = true;
-                    }
-                    new_kids.push(kid);
-                }
-            } else {
-                new_kids.push(kid);
-            }
-        }
-        if removed {
-            dict.insert(k_key, Object::Array(arena.alloc_array(new_kids)));
-        }
+        dict.insert(k_key, Object::Array(arena.alloc_array(kept)));
+        removed = true;
     }
 
     if removed {

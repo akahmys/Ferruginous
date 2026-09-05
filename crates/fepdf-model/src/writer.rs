@@ -31,6 +31,15 @@ const SIGNATURE_SLACK: usize = 32;
 /// The width reserved for the four `/ByteRange` numbers, which are not known until the
 /// file is complete: `0 ` and three ten-digit offsets. Ten digits is every file this
 /// engine could write and several it could not.
+/// How deep a `/Kids` tree is followed before it is taken to be looping.
+///
+/// The same 64 the reader's page walk and the field-tree walks use. A depth and not a
+/// visited set, for the reason [ADR-0060] gives: a page may legitimately be reached by
+/// more than one path in a malformed-but-readable tree, and a set would drop it.
+///
+/// [ADR-0060]: ../../../docs/adr/0060-a-reference-chain-is-bounded-by-what-it-has-seen.md
+const MAX_PAGE_TREE_DEPTH: usize = 64;
+
 const BYTE_RANGE_WIDTH: usize = 34;
 
 /// What the writer needs to sign: which object carries the signature, and whose it is.
@@ -2928,11 +2937,31 @@ impl<W: std::io::Write> PdfWriter<'_, W> {
         }
     }
 
+    /// Collects the page objects under `h`, in `/Kids` order.
+    ///
+    /// **Bounded since 2026-09-05**, on RR-15 Rule 6's terms rather than on a crash seen
+    /// from a file. A `/Kids` naming an ancestor made this follow it forever, and the
+    /// only reason no document reached it is that `Document::open` gets there first and
+    /// *expands* the cycle instead: a two-node loop around one page arrives here as a
+    /// flat list of sixteen references to that page. Depending on that is depending on a
+    /// defect, so the bound does not.
     fn collect_pages_recursive(
         &self,
         h: Handle<Object>,
         pages: &mut Vec<Handle<Object>>,
     ) -> PdfResult<()> {
+        self.collect_pages_at(h, pages, 0)
+    }
+
+    fn collect_pages_at(
+        &self,
+        h: Handle<Object>,
+        pages: &mut Vec<Handle<Object>>,
+        depth: usize,
+    ) -> PdfResult<()> {
+        if depth >= MAX_PAGE_TREE_DEPTH {
+            return Ok(());
+        }
         let Some(obj) = self.arena.get_object(h) else {
             return Ok(());
         };
@@ -2952,7 +2981,7 @@ impl<W: std::io::Write> PdfWriter<'_, W> {
                 if let Some(kids) = self.arena.get_array(kids_h) {
                     for kid in kids {
                         if let Some(kid_h) = kid.as_reference() {
-                            self.collect_pages_recursive(kid_h, pages)?;
+                            self.collect_pages_at(kid_h, pages, depth + 1)?;
                         }
                     }
                 }
@@ -3016,5 +3045,78 @@ impl BitWriter {
             self.data.extend(std::iter::repeat_n(0, pad_bytes));
         }
         self.data
+    }
+}
+
+#[cfg(test)]
+mod page_tree {
+    use super::{MAX_PAGE_TREE_DEPTH, PdfWriter};
+    use crate::arena::PdfArena;
+    use crate::handle::Handle;
+    use crate::object::Object;
+    use std::collections::BTreeMap;
+
+    /// A `/Kids` that names an ancestor is not followed forever.
+    ///
+    /// **This is the one walk in the sweep of 2026-09-05 that no file can reach**, and
+    /// the reason is not reassuring: `Document::open` meets a cyclic page tree first and
+    /// expands it rather than refusing it, so the writer is handed a flat list and never
+    /// sees the loop. The test therefore builds the arena directly, which is the only way
+    /// to put the writer in front of the thing it was not bounded against.
+    ///
+    /// Verified by removing the bound: `fatal runtime error: stack overflow`.
+    #[test]
+    fn a_kids_that_names_an_ancestor_is_not_followed_forever() {
+        let arena = PdfArena::new();
+        let kids = arena.name("Kids");
+        let type_key = arena.name("Type");
+        let pages = arena.name("Pages");
+
+        let top = arena.alloc_object(Object::Null);
+        let below = arena.alloc_object(Object::Null);
+
+        let node = |kid: Handle<Object>| {
+            let mut d = BTreeMap::new();
+            d.insert(type_key, Object::Name(pages));
+            d.insert(kids, Object::Array(arena.alloc_array(vec![Object::Reference(kid)])));
+            Object::Dictionary(arena.alloc_dict(d))
+        };
+        arena.set_object(top, node(below));
+        arena.set_object(below, node(top));
+
+        let writer = PdfWriter::new(Vec::new(), &arena);
+        let mut found = Vec::new();
+        writer.collect_pages_recursive(top, &mut found).expect("the walk returns");
+
+        assert!(found.is_empty(), "neither node is a /Page, so nothing is collected");
+    }
+
+    /// A page tree as deep as the bound allows still yields its page.
+    ///
+    /// Without this, tightening the bound to nothing passes the test above.
+    #[test]
+    fn a_page_within_the_bound_is_still_collected() {
+        let arena = PdfArena::new();
+        let kids = arena.name("Kids");
+        let type_key = arena.name("Type");
+        let pages = arena.name("Pages");
+        let page = arena.name("Page");
+
+        let mut leaf = BTreeMap::new();
+        leaf.insert(type_key, Object::Name(page));
+        let mut current = arena.alloc_object(Object::Dictionary(arena.alloc_dict(leaf)));
+
+        for _ in 0..(MAX_PAGE_TREE_DEPTH - 2) {
+            let mut d = BTreeMap::new();
+            d.insert(type_key, Object::Name(pages));
+            d.insert(kids, Object::Array(arena.alloc_array(vec![Object::Reference(current)])));
+            current = arena.alloc_object(Object::Dictionary(arena.alloc_dict(d)));
+        }
+
+        let writer = PdfWriter::new(Vec::new(), &arena);
+        let mut found = Vec::new();
+        writer.collect_pages_recursive(current, &mut found).expect("the walk returns");
+
+        assert_eq!(found.len(), 1, "the page at the bottom of a legal tree is reached");
     }
 }
