@@ -124,3 +124,4 @@ quietly wrong — which is the failure this log exists to make visible.
 | 0057 | [The released binaries could not read Japanese, because the resources they look for were never built](0057-the-released-binaries-could-not-read-japanese.md) | Ships 0041, 0044 |
 | 0058 | [A user space unit need not be a seventy-second of an inch](0058-a-user-space-unit-need-not-be-a-seventy-second-of-an-inch.md) | — |
 | 0059 | [What holds fy05.pdf below its old reading is a running head in the margin](0059-what-holds-fy05-below-its-old-reading.md) | Measures 0050 |
+| 0060 | [A reference chain is bounded by what it has already seen, not by a number](0060-a-reference-chain-is-bounded-by-what-it-has-seen.md) | — |

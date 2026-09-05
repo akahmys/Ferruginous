@@ -18,7 +18,8 @@ use crate::object::PdfSchema;
 use crate::object::{Object, PdfName};
 use crate::reader;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write as _;
 
 /// How far the engine can go with a catalogue entry.
 ///
@@ -358,12 +359,54 @@ impl CatalogReport {
 }
 
 /// One phrase for a value: enough to tell a dictionary from a name from an array.
+///
+/// **A chain of references is followed by a loop that remembers where it has been.**
+/// `describe` used to follow them by recursion with no bound at all, so a four-object
+/// file whose catalogue named an object holding a reference to itself aborted the
+/// process with `fatal runtime error: stack overflow` — RR-15 Rule 6, whose enforcement
+/// column says "Code review". Rule 6 also says what to use instead, and this is it.
+///
+/// **The guard is a visited set and not a depth limit**, which is the difference between
+/// this and the twelve tree walks in this crate that do count depth. A tree walk meets
+/// the same node under two parents legitimately, so a visited set would prune what it
+/// should keep and a depth bound is the right approximation. A reference chain has one
+/// successor per step, so a chain that repeats no handle must end — the arena is finite.
+/// The set is therefore exact where a number would be a guess, and it lets the phrase
+/// say *why* it stopped instead of printing sixty-four identical hops to a table cell.
+///
+/// No bound here is derived from the corpus: the deepest chain any catalogue value
+/// carries is one hop, in all 524 files of both corpora (measured 2026-09-05). A figure
+/// taken from that would have refused a conforming file, because 7.3.10 lets an indirect
+/// object hold an indirect reference however few do.
 fn describe(arena: &PdfArena, object: &Object) -> String {
+    let mut chain = String::new();
+    let mut seen = BTreeSet::new();
+    let mut current = object.clone();
+    loop {
+        let Object::Reference(handle) = current else {
+            chain.push_str(&describe_direct(arena, &current));
+            return chain;
+        };
+        let _ = write!(chain, "{} 0 R -> ", handle.index());
+        if !seen.insert(handle) {
+            chain.push_str("(already in this chain)");
+            return chain;
+        }
+        match arena.get_object(handle) {
+            Some(inner) => current = inner,
+            None => {
+                chain.push_str("missing");
+                return chain;
+            }
+        }
+    }
+}
+
+/// The same phrase for a value that is not a reference.
+fn describe_direct(arena: &PdfArena, object: &Object) -> String {
     match object {
-        Object::Reference(h) => match arena.get_object(*h) {
-            Some(inner) => format!("{} 0 R -> {}", h.index(), describe(arena, &inner)),
-            None => format!("{} 0 R -> missing", h.index()),
-        },
+        // Unreachable from `describe`, which follows every reference before calling this.
+        Object::Reference(h) => format!("{} 0 R", h.index()),
         Object::Dictionary(h) => arena
             .get_dict(*h)
             .map_or_else(|| "dictionary".into(), |d| format!("dictionary[{}]", d.len())),
@@ -398,6 +441,90 @@ fn resolve_dict(arena: &PdfArena, object: &Object) -> Option<BTreeMap<Handle<Pdf
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A file whose catalogue names an object that refers to itself is described, not
+    /// crashed on.
+    ///
+    /// **This is the defect it was written for.** `describe` followed references by
+    /// recursion with no bound, and the four objects below aborted the process:
+    /// `fatal runtime error: stack overflow`. Verified by putting the recursion back —
+    /// and the failure is worth knowing: a stack overflow *aborts the test binary*, so
+    /// the defect does not show up as a red test but as a suite that stops. A bound is
+    /// the only thing that turns it into an assertion at all.
+    ///
+    /// The whole phrase is asserted rather than a substring, because "it returned" is
+    /// also what an empty string would do, and because the phrase staying short is half
+    /// of what the visited set buys over a depth limit.
+    #[test]
+    fn a_catalogue_entry_that_refers_to_itself_is_described_not_followed_forever() {
+        let report = CatalogReport::survey(&self_referencing_file()).expect("the file reads");
+        let loop_entry =
+            report.entries.iter().find(|e| e.key == "Loop").expect("/Loop is in the catalogue");
+
+        assert_eq!(
+            loop_entry.value, "4 0 R -> 4 0 R -> (already in this chain)",
+            "the phrase must say why it stopped, and stay one phrase"
+        );
+    }
+
+    /// A chain of two references — which no file in either corpus carries, and which
+    /// 7.3.10 permits — is followed to its end rather than cut short.
+    ///
+    /// The bound exists to stop a loop, not to refuse a conforming file, and a bound
+    /// taken from the corpus would have been 1.
+    #[test]
+    fn a_conforming_chain_of_references_is_followed_to_its_end() {
+        let report = CatalogReport::survey(&chained_file()).expect("the file reads");
+        let chain =
+            report.entries.iter().find(|e| e.key == "Chain").expect("/Chain is in the catalogue");
+
+        assert_eq!(chain.value.matches("->").count(), 2, "both hops are shown: {}", chain.value);
+        assert!(
+            chain.value.ends_with("/Done"),
+            "the end of the chain is what it names: {}",
+            chain.value
+        );
+    }
+
+    fn assemble(objects: &[&str]) -> Vec<u8> {
+        let mut out = String::from("%PDF-2.0\n");
+        let mut offsets = Vec::new();
+        for (index, body) in objects.iter().enumerate() {
+            offsets.push(out.len());
+            out.push_str(&format!("{} 0 obj\n{body}\nendobj\n", index + 1));
+        }
+        let table_at = out.len();
+        let size = objects.len() + 1;
+        out.push_str(&format!("xref\n0 {size}\n0000000000 65535 f \n"));
+        for offset in &offsets {
+            out.push_str(&format!("{offset:010} 00000 n \n"));
+        }
+        out.push_str(&format!(
+            "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{table_at}\n%%EOF\n"
+        ));
+        out.into_bytes()
+    }
+
+    /// Object 4 holds `4 0 R`, so following `/Loop` never reaches a value.
+    fn self_referencing_file() -> Vec<u8> {
+        assemble(&[
+            "<< /Type /Catalog /Pages 2 0 R /Loop 4 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>",
+            "4 0 R",
+        ])
+    }
+
+    /// `/Chain` is `4 0 R`, object 4 is `5 0 R`, object 5 is the name it ends at.
+    fn chained_file() -> Vec<u8> {
+        assemble(&[
+            "<< /Type /Catalog /Pages 2 0 R /Chain 4 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>",
+            "5 0 R",
+            "/Done",
+        ])
+    }
 
     #[test]
     fn table_29_has_every_key_once() {
