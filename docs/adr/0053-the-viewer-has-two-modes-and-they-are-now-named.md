@@ -66,10 +66,15 @@ except 700 to 1000 at the far end. Chrome and Firefox both thicken the ladder ar
 readable range this way; Acrobat does not, going 10, 25, 50, whose 2.5x first step a viewer
 with a page-grid overview cannot use.
 
-**The floor is 20% because that is where the fixed grid stops fitting the window.** Ten
-columns of A4 with their gaps is 6,382 page units, or 1,276 pixels at 20% — an ordinary
-viewport full. Below that the grid only shrinks into the middle of the screen while showing
-no more of the document, so the zoom there bought nothing. Fixing the column count
+**The floor is 20% because below it zooming out stops helping.** The tile view is for
+arranging pages, and a tile smaller than this cannot be told from its neighbour: the zoom
+beyond here buys a fuller screen of things that cannot be used.
+
+That the grid also stops fitting the window there is a coincidence which supports it — ten
+columns of A4 with their gaps is 6,382 page units, or 1,276 pixels at 20%, an ordinary
+viewport full. Below that it shrinks into the middle of the screen while showing no more of
+the document. **A page view has neither constraint**, so a document of sheets too large to
+fit at 20% wants a floor of its own rather than a lower one for both. Fixing the column count
 ([ADR-0055](0055-the-tile-arrangement-does-not-depend-on-the-zoom.md)) is what settled the
 number; the old floor of 10% belonged to a layout that fitted itself to the window.
 

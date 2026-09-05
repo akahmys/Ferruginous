@@ -144,12 +144,16 @@ impl PDFView {
 
     /// The smallest zoom the viewer offers.
     ///
-    /// **It is where the fixed grid stops fitting the window.** Ten columns of A4 with
-    /// their gaps is 6,382 page units, which at 20% is 1,276 pixels and fills an ordinary
-    /// viewport; below that the grid only shrinks into the middle of the screen and shows
-    /// no more of the document than it did. Fixing `FepdfApp::TILE_COLUMNS` is what settled
-    /// this number — a layout that fitted itself to the window had no such floor, and was
-    /// why the old one was 0.1.
+    /// **Below it, zooming out stops helping.** The tile view is for arranging pages, and a
+    /// tile smaller than this is not one a reader can tell from its neighbour, so the zoom
+    /// beyond here buys a fuller screen of things that cannot be used. That is the reason;
+    /// what follows is a coincidence that supports it.
+    ///
+    /// Ten columns of A4 with their gaps is 6,382 page units, which at 20% is 1,276 pixels
+    /// and fills an ordinary viewport. Below that the grid also shrinks into the middle of
+    /// the screen and shows no more of the document than it did — the arrangement being
+    /// fixed (`FepdfApp::TILE_COLUMNS`) is what gives it a floor at all. A layout that
+    /// fitted itself to the window had none, which is why the old floor was 0.1.
     ///
     /// The cost is that the tile view is two steps wide, 20% and 25%, and shows 40 to 50
     /// pages rather than the 253 measured at the old floor. More than that is now a
