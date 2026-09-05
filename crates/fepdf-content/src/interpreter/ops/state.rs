@@ -129,6 +129,54 @@ impl Interpreter<'_> {
         }
     }
 
+    /// Applies Table 57's line parameters — `/LW`, `/LC`, `/LJ`, `/ML`, `/D`.
+    ///
+    /// **`gs` reached none of these until 2026-09-06**, so a page that set its stroke
+    /// width through an `/ExtGState` drew at the initial width and was indistinguishable
+    /// from one that set nothing. `StrokeStyle`'s own fields are documented by these
+    /// key names, which is how long the gap had been visible without being seen.
+    ///
+    /// An enumerant the standard does not define is substituted and recorded, exactly as
+    /// `J` and `j` do for the same values (Rule 20). `/LW` and `/ML` take any number, so
+    /// there is nothing to refuse in them.
+    fn apply_gs_stroke_style(&mut self, gs_dict: &BTreeMap<Handle<PdfName>, Object>) {
+        let arena = self.doc.arena();
+        let at = |key: &str| gs_dict.get(&arena.intern_name(PdfName::new(key))).cloned();
+
+        if let Some(width) = at("LW").and_then(|o| o.resolve(arena).as_f64()) {
+            self.state.stroke_style.width = width;
+        }
+        if let Some(limit) = at("ML").and_then(|o| o.resolve(arena).as_f64()) {
+            self.state.stroke_style.miter_limit = limit;
+        }
+        if let Some(val) = at("LC").and_then(|o| o.resolve(arena).as_integer()) {
+            self.state.stroke_style.cap = LineCap::from_i64(val).unwrap_or_else(|| {
+                self.record_undefined_enumerant("8.4.3.3", "Table 53, reached as /LC", "gs", val);
+                LineCap::Butt
+            });
+        }
+        if let Some(val) = at("LJ").and_then(|o| o.resolve(arena).as_integer()) {
+            self.state.stroke_style.join = LineJoin::from_i64(val).unwrap_or_else(|| {
+                self.record_undefined_enumerant("8.4.3.4", "Table 54, reached as /LJ", "gs", val);
+                LineJoin::Miter
+            });
+        }
+        if let Some(pattern) = at("D").and_then(|o| self.dash_from_ext_g_state(&o)) {
+            self.state.stroke_style.dash_pattern = Some(pattern);
+        }
+    }
+
+    /// `/D` is `[dashArray dashPhase]`, where `d` takes the two as separate operands.
+    fn dash_from_ext_g_state(&self, entry: &Object) -> Option<(Vec<f64>, f64)> {
+        let arena = self.doc.arena();
+        let items = arena.get_array(entry.resolve(arena).as_array()?)?;
+        let [array, phase] = &items[..] else { return None };
+        let dashes = arena.get_array(array.resolve(arena).as_array()?)?;
+        let lengths: Vec<f64> =
+            dashes.iter().filter_map(|item| item.resolve(arena).as_f64()).collect();
+        Some((lengths, phase.resolve(arena).as_f64()?))
+    }
+
     fn handle_gs_operator(&mut self, name: &PdfName) -> PdfResult<()> {
         let entry =
             self.find_resource(&self.doc.arena().intern_name(PdfName::new("ExtGState")), name)?;
@@ -141,6 +189,7 @@ impl Interpreter<'_> {
             let bm_key = self.doc.arena().intern_name(PdfName::new("BM"));
             let smask_key = self.doc.arena().intern_name(PdfName::new("SMask"));
             self.apply_gs_font(&gs_dict);
+            self.apply_gs_stroke_style(&gs_dict);
 
             if let Some(ca) = gs_dict.get(&ca_key).and_then(|o| o.as_f64()) {
                 self.state.fill_alpha = ca;
