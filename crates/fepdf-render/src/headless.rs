@@ -89,6 +89,11 @@ pub async fn render_to_bytes_with(
     if let Some(refusal) = crate::budget::over_budget(scene) {
         return Err(format!("Rendering refused: {refusal}").into());
     }
+    if rasteriser == Rasteriser::Cpu
+        && let Some(refusal) = crate::budget::cpu_target_too_large(width, height)
+    {
+        return Err(format!("Rendering refused: {refusal}").into());
+    }
 
     log::debug!("[RENDER] Rendering to texture...");
     renderer

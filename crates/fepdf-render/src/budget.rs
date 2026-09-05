@@ -62,6 +62,41 @@ pub fn over_budget(scene: &Scene) -> Option<String> {
     })
 }
 
+/// How many pixels of target one of vello's bins covers, each way.
+///
+/// A bin is 16 tiles by 16 tiles and a tile is 16 pixels square (`vello_shaders::cpu`).
+const BIN_PIXELS: u32 = 256;
+
+/// How many bins the CPU coarse pass can address.
+///
+/// `N_TILE_X * N_TILE_Y`, and `coarse.rs` indexes `bin_headers[part * N_TILE + bin]` with
+/// nothing checking that `bin` is inside it.
+const CPU_BINS: u32 = 256;
+
+/// Why the CPU rasteriser cannot draw a target this size, or `None` when it can.
+///
+/// **A target larger than 256 bins walks off the end of `info_bin_data`.**
+/// `vello_shaders::cpu::coarse` reads `info_bin_data[(start + i) as usize]` and panics with
+/// *"index out of bounds: the len is 256 but the index is 256"*. The GPU path draws the
+/// same scene; only the CPU one is bounded this way, and `panic = "abort"` in the release
+/// profile means it cannot be caught — it has to be refused before it is asked.
+///
+/// **The bound is computed, not guessed.** Measured on `samples/volvo_xc90.pdf` at six
+/// scales: 140, 204 and 247 bins drew, and 266, 280 and 441 aborted. The scene's own cost
+/// was 2,073 words of bin data at every one of them, so the size of the target is the whole
+/// of it.
+#[must_use]
+pub fn cpu_target_too_large(width: u32, height: u32) -> Option<String> {
+    let bins = width.div_ceil(BIN_PIXELS) * height.div_ceil(BIN_PIXELS);
+    (bins > CPU_BINS).then(|| {
+        format!(
+            "the CPU rasteriser addresses {CPU_BINS} bins of {BIN_PIXELS} pixels and \
+             {width}x{height} needs {bins}; vello indexes past its own buffer there. \
+             Render this on the GPU."
+        )
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -119,5 +154,44 @@ mod tests {
             measured * 64,
             "the composer adds `solid_fill_cost` per page and must not under-count"
         );
+    }
+}
+
+#[cfg(test)]
+mod cpu_bins {
+    use super::cpu_target_too_large;
+
+    /// **The measured boundary.** `samples/volvo_xc90.pdf` at six scales: 2979x4209 (204
+    /// bins), 3277x4630 (247) and smaller drew; 3393x4798 (266), 3512x4967 (280) and
+    /// 5333x5333 (441) aborted. The scene cost 2,073 words of bin data at every one, so the
+    /// target's size is the whole of what decides it.
+    #[test]
+    fn the_boundary_is_where_it_was_measured() {
+        for (w, h) in [(792_u32, 1119_u32), (2383, 3367), (2979, 4209), (3277, 4630)] {
+            assert!(cpu_target_too_large(w, h).is_none(), "{w}x{h} drew when it was measured");
+        }
+        for (w, h) in [(3393_u32, 4798_u32), (3512, 4967), (3575, 5050), (5333, 5333)] {
+            assert!(cpu_target_too_large(w, h).is_some(), "{w}x{h} aborted when it was measured");
+        }
+    }
+
+    /// Exactly 256 bins is the last size that draws, and one bin more is the first that
+    /// does not: a boundary off by one is a boundary that either aborts or refuses a page
+    /// it could have drawn.
+    #[test]
+    fn the_last_size_that_fits_is_exactly_two_hundred_and_fifty_six_bins() {
+        assert!(cpu_target_too_large(4096, 4096).is_none(), "16 by 16 bins is the limit");
+        assert!(cpu_target_too_large(4097, 4096).is_some(), "one pixel over is 17 by 16");
+        assert!(cpu_target_too_large(4096, 4097).is_some(), "and the other way round");
+    }
+
+    /// The refusal says what to do about it. A message that only says no leaves a caller
+    /// with a page it cannot draw and no idea that the GPU would.
+    #[test]
+    fn the_refusal_names_the_way_out() {
+        let refusal = cpu_target_too_large(5333, 5333).expect("refused");
+        assert!(refusal.contains("5333x5333"), "say the size: {refusal}");
+        assert!(refusal.contains("441"), "say how many bins that needs: {refusal}");
+        assert!(refusal.contains("GPU"), "and say the GPU can: {refusal}");
     }
 }

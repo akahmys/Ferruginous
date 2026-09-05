@@ -18,6 +18,7 @@
 use crate::remediation::HeuristicEngine;
 use bytes::Bytes;
 pub use fepdf_content::FallbackFontType;
+pub use fepdf_model::document::fallback_fonts;
 pub use fepdf_model::font::{GlyphTrace, TraceContext};
 // Re-exported so frontends need no dependency on fepdf-model at all: with the model
 // unreachable by name, ARCHITECTURE.md Rule A is enforced by Cargo rather than by

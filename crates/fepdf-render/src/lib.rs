@@ -97,51 +97,14 @@ struct FontCacheEntry {
 }
 
 impl VelloBackend {
-    /// Loads the bundled fallback fonts from the configured resource directory.
+    /// The fallback faces this backend draws with when a document embeds none.
+    ///
+    /// **This used to be its own assembly, and it had no platform fallback under it.** It
+    /// read the resource directory and returned an empty map when there was none — which
+    /// is every released archive, since none shipped a `resources/fonts`. It is
+    /// `fepdf_model::document::fallback_fonts` now, the same one the model and the CLI use.
     pub fn load_system_fonts() -> Arc<std::collections::BTreeMap<FallbackFontType, Arc<Vec<u8>>>> {
-        let mut fonts = std::collections::BTreeMap::new();
-        // The same root and layout the model's loader uses
-        // (`fepdf_model::resources`). The two disagreed once — `assets` here against
-        // `resources` there — and this copy is the one with no platform fallback under
-        // it, so the wrong default left the map empty outright for three months.
-        let Some(base_path) =
-            fepdf_model::resources::locate(fepdf_model::resources::Resource::Fonts)
-        else {
-            return Arc::new(fonts);
-        };
-
-        let mappings = [
-            (FallbackFontType::Serif, "serif.ttf"),
-            (FallbackFontType::SansSerif, "sans.ttf"),
-            (FallbackFontType::Monospace, "mono.ttf"),
-            (FallbackFontType::JapaneseSerif, "mincho.ttf"),
-            (FallbackFontType::JapaneseSans, "gothic.ttf"),
-        ];
-
-        for (ftype, filename) in mappings {
-            let path = base_path.join(filename);
-            match std::fs::read(&path) {
-                Ok(data) => {
-                    let data = Arc::new(data);
-                    // A face for "no preference" as well as for the shape it names, so a
-                    // font resource that infers `Default` finds something. Nothing
-                    // populated that key anywhere until Phase P.
-                    if ftype == FallbackFontType::SansSerif {
-                        fonts.insert(FallbackFontType::Default, Arc::clone(&data));
-                    }
-                    fonts.insert(ftype, data);
-                }
-                Err(e) => {
-                    log::warn!(
-                        "[RENDER] Failed to load system fallback font {:?} from {}: {:?}",
-                        ftype,
-                        path.display(),
-                        e
-                    );
-                }
-            }
-        }
-        Arc::new(fonts)
+        Arc::new(fepdf_model::document::fallback_fonts())
     }
 
     /// Creates a backend that draws with the supplied fallback fonts.

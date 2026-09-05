@@ -684,7 +684,6 @@ impl Document {
 
     #[cfg(target_os = "macos")]
     fn load_mac_fallbacks(
-        &self,
         fonts: &mut BTreeMap<FallbackFontType, Arc<Vec<u8>>>,
         missing_types: &[FallbackFontType],
     ) {
@@ -712,7 +711,6 @@ impl Document {
 
     #[cfg(target_os = "windows")]
     fn load_windows_fallbacks(
-        &self,
         fonts: &mut BTreeMap<FallbackFontType, Arc<Vec<u8>>>,
         missing_types: &[FallbackFontType],
     ) {
@@ -734,7 +732,6 @@ impl Document {
 
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     fn load_linux_fallbacks(
-        &self,
         fonts: &mut BTreeMap<FallbackFontType, Arc<Vec<u8>>>,
         missing_types: &[FallbackFontType],
     ) {
@@ -770,75 +767,27 @@ impl Document {
     }
 
     fn load_platform_fallback_fonts(
-        &self,
         fonts: &mut BTreeMap<FallbackFontType, Arc<Vec<u8>>>,
         missing_types: &[FallbackFontType],
     ) {
         #[cfg(target_os = "macos")]
-        self.load_mac_fallbacks(fonts, missing_types);
+        Self::load_mac_fallbacks(fonts, missing_types);
 
         #[cfg(target_os = "windows")]
-        self.load_windows_fallbacks(fonts, missing_types);
+        Self::load_windows_fallbacks(fonts, missing_types);
 
         #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-        self.load_linux_fallbacks(fonts, missing_types);
+        Self::load_linux_fallbacks(fonts, missing_types);
     }
 
-    /// Loads system fonts from well-known paths.
+    /// Loads the fallback faces into this document.
+    ///
+    /// The assembly itself is [`crate::document::fallback_fonts`], because three callers
+    /// wanted it and each had written its own: this one, `VelloBackend::load_system_fonts`
+    /// with no platform fallback under it, and `fepdf-cli`'s `host_cjk_fallbacks` with a
+    /// hand-written path list that named macOS and Debian and no Windows at all.
     pub fn load_system_fonts(&mut self) {
-        let mut fonts = BTreeMap::new();
-
-        // 1. First check the configured resource directory.
-        //
-        // `assets` and not `resources`: the five faces were renamed from `resources/fonts`
-        // to `assets/fonts` on 2026-05-16 (d71083d, a pure R100 rename) and this default
-        // stayed behind, here and in `VelloBackend::load_system_fonts`. Nothing noticed
-        // because *this* loader falls through to the platform paths below and finds real
-        // fonts anyway; the renderer's copy has no such fallback and its map was simply
-        // empty for three months.
-        // One root, one layout (`fepdf_font::resources`). This used to be
-        // `resource_dir("assets")` while the CMap loader used
-        // `resource_dir("external/adobe-cmaps")`, and `FEPDF_RESOURCES` overrode both
-        // with the same value — so a setting that found one hid the other.
-        let base_path = fepdf_font::resources::locate(fepdf_font::resources::Resource::Fonts);
-        let mappings = [
-            (crate::font::FallbackFontType::Serif, "serif.ttf"),
-            (crate::font::FallbackFontType::SansSerif, "sans.ttf"),
-            (crate::font::FallbackFontType::Monospace, "mono.ttf"),
-            (crate::font::FallbackFontType::JapaneseSerif, "mincho.ttf"),
-            (crate::font::FallbackFontType::JapaneseSans, "gothic.ttf"),
-        ];
-
-        for (ftype, filename) in mappings {
-            let Some(base) = base_path.as_ref() else { break };
-            if let Ok(data) = std::fs::read(base.join(filename)) {
-                fonts.insert(ftype, Arc::new(data));
-            }
-        }
-
-        // 2. Fallback to platform-specific well-known paths for missing fonts
-        let missing_types: Vec<_> = [
-            crate::font::FallbackFontType::Serif,
-            crate::font::FallbackFontType::SansSerif,
-            crate::font::FallbackFontType::Monospace,
-            crate::font::FallbackFontType::JapaneseSerif,
-            crate::font::FallbackFontType::JapaneseSans,
-        ]
-        .into_iter()
-        .filter(|ft| !fonts.contains_key(ft))
-        .collect();
-
-        if !missing_types.is_empty() {
-            self.load_platform_fallback_fonts(&mut fonts, &missing_types);
-        }
-
-        // `Default` is what a font resource gets when nothing about it suggests a face,
-        // and it is in no `missing_types` list above — so nothing ever put it in the map
-        // and every lookup for it missed. `fepdf-cli`'s `publish` command had been
-        // patching that by hand, alone, which is the tell that it belonged here.
-        seed_default_face(&mut fonts);
-
-        self.system_fonts = Arc::new(fonts);
+        self.system_fonts = Arc::new(fallback_fonts());
     }
     /// Returns a reference to the internal arena.
     pub fn arena(&self) -> &PdfArena {
@@ -1636,6 +1585,59 @@ fn seed_default_face(fonts: &mut BTreeMap<crate::font::FallbackFontType, Arc<Vec
             return;
         }
     }
+}
+
+/// The fallback faces, from the resource directory if there is one and from the platform's
+/// own fonts otherwise.
+///
+/// **There were three of these and they did not agree.** The model's had the platform
+/// fallback below it; `VelloBackend::load_system_fonts` had none and returned an empty map
+/// when the resource directory was absent, which is every released archive; and
+/// `fepdf-cli`'s `host_cjk_fallbacks` had a hand-written list of macOS and Debian paths and
+/// no Windows at all, so a Windows user of the CLI had no fallback face for any script.
+///
+/// One assembly, so that what a caller gets does not depend on which crate it asked.
+#[must_use]
+pub fn fallback_fonts() -> BTreeMap<crate::font::FallbackFontType, Arc<Vec<u8>>> {
+    use crate::font::FallbackFontType;
+
+    let mut fonts = BTreeMap::new();
+
+    // The resource directory first: a document that ships its own faces means them.
+    if let Some(base) = fepdf_font::resources::locate(fepdf_font::resources::Resource::Fonts) {
+        for (kind, filename) in [
+            (FallbackFontType::Serif, "serif.ttf"),
+            (FallbackFontType::SansSerif, "sans.ttf"),
+            (FallbackFontType::Monospace, "mono.ttf"),
+            (FallbackFontType::JapaneseSerif, "mincho.ttf"),
+            (FallbackFontType::JapaneseSans, "gothic.ttf"),
+        ] {
+            if let Ok(data) = std::fs::read(base.join(filename)) {
+                fonts.insert(kind, Arc::new(data));
+            }
+        }
+    }
+
+    let missing: Vec<_> = [
+        FallbackFontType::Serif,
+        FallbackFontType::SansSerif,
+        FallbackFontType::Monospace,
+        FallbackFontType::JapaneseSerif,
+        FallbackFontType::JapaneseSans,
+    ]
+    .into_iter()
+    .filter(|kind| !fonts.contains_key(kind))
+    .collect();
+
+    if !missing.is_empty() {
+        Document::load_platform_fallback_fonts(&mut fonts, &missing);
+    }
+
+    // `Default` is what a font resource gets when nothing about it suggests a face, and it
+    // is in no `missing` list above — so nothing ever put it in the map and every lookup
+    // for it missed.
+    seed_default_face(&mut fonts);
+    fonts
 }
 
 #[cfg(test)]

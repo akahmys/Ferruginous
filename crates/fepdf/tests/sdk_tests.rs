@@ -524,3 +524,33 @@ fn a_declared_user_unit_is_taken_as_written() {
         assert!((unit - expected).abs() < f64::EPSILON, "/UserUnit {declared} gave {unit}");
     }
 }
+
+/// **Every caller gets the same fallback faces.** There were three assemblies of them and
+/// they did not agree: the model's had the platform's own fonts under it, the renderer's
+/// had nothing under it and returned an empty map wherever a resource directory was absent
+/// — which is every released archive — and the CLI's was a hand-written list of macOS and
+/// Debian paths with no Windows in it at all.
+///
+/// The test is that the map is not empty and that the two public entry points answer alike.
+/// It cannot say *which* faces a machine has, since that is the machine's business; it can
+/// say that asking through a different crate does not change the answer.
+#[test]
+fn the_fallback_faces_do_not_depend_on_which_crate_asked() {
+    let direct = fepdf::fallback_fonts();
+    assert!(!direct.is_empty(), "no fallback face was found by any route");
+
+    // The one face nothing used to put in the map: `Default` is what a font resource gets
+    // when nothing about it suggests a face, and it was in no list of missing types.
+    assert!(
+        direct.contains_key(&fepdf::FallbackFontType::Default),
+        "the default face is seeded, which is what the CLI used to patch by hand"
+    );
+
+    #[cfg(feature = "render")]
+    {
+        let through_renderer = fepdf::VelloBackend::load_system_fonts();
+        let mine: Vec<_> = direct.keys().copied().collect();
+        let theirs: Vec<_> = through_renderer.keys().copied().collect();
+        assert_eq!(mine, theirs, "the renderer and the free function disagree");
+    }
+}

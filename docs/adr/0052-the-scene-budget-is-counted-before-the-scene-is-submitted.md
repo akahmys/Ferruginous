@@ -88,6 +88,23 @@ cannot see it.
 (3 tests), not counting the page background (1), stopping one page late (1), a cost function
 that always answers zero (3), and a check that never refuses (1).
 
+## The CPU rasteriser has a second, unrelated bound, 2026-09-05
+
+**It is the target's size, not the scene's cost.** `vello_shaders::cpu::coarse` indexes
+`bin_headers[part * N_TILE + bin]` where `N_TILE` is 16 by 16, so a target needing more than
+**256 bins of 256 pixels** walks off the end of `info_bin_data` — *"index out of bounds: the
+len is 256 but the index is 256"*. The GPU path draws the same scene.
+
+Found by rendering `LineCap-Degenerate.pdf` after ADR-0058 made `/UserUnit` count: at
+5,333 pixels square it needs 441 bins. Measured on `samples/volvo_xc90.pdf` at six scales —
+140, 204 and 247 bins drew, 266, 280 and 441 aborted, and the scene cost 2,073 words of bin
+data at every one of them.
+
+**It has to be refused rather than caught**: `panic = "abort"` in the release profile, so
+`catch_unwind` would not see it. `budget::cpu_target_too_large` computes the bin count and
+refuses with the size, the count and the advice to use the GPU. The bound is arithmetic
+from vello's own constants, not a fitted number.
+
 **The margin was thinner than the per-page figures suggested, and only the composed figure
 showed it.** 2.4% per page reads like a wide margin; 39 pages on a document the viewer will
 happily show 138 of does not. `examples/scene_budget` reports both.
