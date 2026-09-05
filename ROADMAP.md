@@ -1042,7 +1042,7 @@ constructs the two corpora actually present, how many does the engine read the
 across 251 files, 20 of Table 29's 32 catalogue keys, 16 annotation subtypes, 2 of the
 four field types and 13 action kinds — so a construct that never arrives can neither
 raise the figure nor lower it. Arlington's machine-readable model
-(`external/arlington/tsv/latest`, 613 object definitions, already a submodule) says what
+(`external/arlington/tsv/latest`, 613 object definitions) says what
 each key is supposed to hold, which makes the numerator a comparison rather than a
 self-assessment.
 

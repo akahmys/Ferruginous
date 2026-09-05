@@ -63,8 +63,10 @@ phase document and an ADR records why.
 2. **What the engine finds, it records; what you want to know, you measure.** A finding
    about a *document* is a `Decision` naming its clause (`ARCHITECTURE.md` §4.3) — not a
    log line, because a warning on stderr cannot tell a caller *this loaded* from *this was
-   conforming*. The engine keeps three `log::warn!`/`log::error!` sites, counted by
-   `./scripts/dev/status.sh`.
+   conforming*. The engine keeps two `log::warn!`/`log::error!` sites — which fonts this
+   machine has, and the GPU failing to initialise — counted by `./scripts/dev/status.sh`.
+   It read three until 2026-09-05, when unifying the three fallback-font assemblies into
+   one took the third with the duplicated code.
 3. **A corpus can justify building something. Only a use case can justify not building
    it.** Zero occurrences measures the corpus, not the world.
 

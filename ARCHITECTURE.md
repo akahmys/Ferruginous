@@ -88,10 +88,13 @@ until 2026-08-29; a document that states where code must go is part of the desig
     and the only root directory that holds output.
 
     Held by four writers that did not, until 2026-08-29: `render_all_samples.rs`,
-    `render_japanese_samples.rs`, `fepdf-mcp`'s render tool and `hiragana_render_test.sh`
-    all wrote to a root-level `artifacts/`. It was git-ignored too, so nothing was ever
-    going to notice — which is why this rule now names the directory rather than the
-    principle. `fepdf debug extract-font` had the worse version of the same fault: it
+    `render_japanese_samples.rs`, `fepdf-mcp`'s render tool and a
+    `hiragana_render_test.sh` deleted on 2026-09-06 — it called `fepdf produce render`, a
+    verb the CLI has not had since it was split into `inspect`/`edit`/`publish`/`debug`,
+    and its only assertion was that the PNG exceeded 50 KB, which a page of the wrong
+    glyphs satisfies as readily as a page of the right ones. All four wrote to a
+    root-level `artifacts/`. It was git-ignored too, so nothing was ever going to notice —
+    which is why this rule now names the directory rather than the principle. `fepdf debug extract-font` had the worse version of the same fault: it
     wrote to a root-level `exports/` that was **not** git-ignored and never created, so
     the write failed unless someone had made the directory by hand, and left untracked
     files in the repository root when they had.

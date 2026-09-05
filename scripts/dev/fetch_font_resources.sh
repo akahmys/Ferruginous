@@ -1,9 +1,16 @@
 #!/usr/bin/env bash
 # Fetches the two Adobe resources this engine reads at run time.
 #
-# `external/` is not versioned, so without this script the data is whatever the last
-# person happened to have. Both are BSD-licensed and redistributable; neither is vendored
-# into the binary.
+# **Both are submodules**, pinned in `.gitmodules`, so `git submodule update --init` is
+# the mechanism that gets the data this repository was tested against. This script clones
+# them at their tips instead, which is the right answer only for a checkout that did not
+# take the submodules. Where the two disagree, the gitlink is what the measurements in
+# `ROADMAP.md` were made against.
+#
+# This header said "`external/` is not versioned" until 2026-09-06, which was the opposite
+# of the truth and is why the two mechanisms were never reconciled.
+#
+# Both are BSD-licensed and redistributable; neither is vendored into the binary.
 #
 # **They are two repositories because they answer opposite questions**, and reading one
 # for the other's job is how 7,617 CIDs came to be unreadable:

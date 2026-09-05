@@ -121,6 +121,17 @@ Reading recovers 111 objects from five of them — the count of the undamaged fi
 `/Type /Catalog` at all, so it reads but cannot be *opened* as a document; that is the
 expected result, not a gap.
 
+**Six and not seven: the cyclic-reference case is not here.** The walks bounded on
+2026-09-05 ([ADR-0060](docs/adr/0060-a-reference-chain-is-bounded-by-what-it-has-seen.md),
+[ADR-0061](docs/adr/0061-four-walks-bounded-and-two-that-were-not-what-the-sweep-said.md))
+were found with a file whose catalogue names an object holding a reference to itself, and
+the obvious home for it was this directory. It is not one: a self-reference is conforming
+*syntax* — 7.3.10 lets any object be an indirect reference — and what is wrong with it is
+a cycle in the object graph, not a damaged clause 7.5 structure. Adding it would make this
+corpus two things, and the sentence above it would stop being true of every file in it.
+The fixtures live in the tests that need them instead, built inline, where each says which
+walk it is about.
+
 ---
 
 ## 3. Visual regression

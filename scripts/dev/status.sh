@@ -103,12 +103,18 @@ for crate_dir in crates/*/; do
         *)           engine_dirs="$engine_dirs $crate_dir/src" ;;
     esac
 done
-# Three are deliberate and each says so where it is: which fonts *this machine* has
-# (`fepdf-model`), the GPU failing to initialise so the CPU renderer takes over, and a
-# system fallback font that would not load from its path. All three are properties of the
-# host, which is what a log is for; a conclusion about the document is a `Decision`.
+# Two are deliberate and each says so where it is: which fonts *this machine* has
+# (`fepdf-model`), and the GPU failing to initialise so the CPU renderer takes over. Both
+# are properties of the host, which is what a log is for; a conclusion about the document
+# is a `Decision`.
+#
+# There were three. The third warned that a system fallback font would not load from its
+# path, and it went on 2026-09-05 with the duplicated code around it, when three separate
+# assemblies of the fallback faces became one. This row and `AGENTS.md` both said three
+# for a day afterwards, which is the drift the row exists to make visible — and did not,
+# because the expectation was written into the label rather than checked.
 engine_logs=$(grep -rn "log::warn!\|log::error!" $engine_dirs --include="*.rs" 2>/dev/null | wc -l | tr -d ' ')
-row "engine log::warn!/error! sites (expect 3)" "$engine_logs"
+row "engine log::warn!/error! sites (expect 2)" "$engine_logs"
 frontend_logs=$(grep -rn "log::warn!\|log::error!" $frontend_dirs --include="*.rs" 2>/dev/null | wc -l | tr -d ' ')
 row "frontend log sites (not a defect)" "$frontend_logs"
 

@@ -106,8 +106,16 @@ each names review instead, per the rule that an unchecked rule is a comment.
 file gets neither a `Decision` nor an error — the ground Rule 5's lint cannot reach,
 because `/LC`, `/LJ`, `/ShadingType` and `/V` arrive as integers rather than as enums. It
 is not in the script above and does not gate a commit: some of what it lists is
-defensible, and the number is there so a new one is visible. It reads **8**, from 11 on
-2026-08-30, and prints the three it now exempts beside the callers that record for them.
+defensible, and the number is there so a new one is visible. It reads **0**: the count
+went 11 → 8 on 2026-08-30, when three enumerants gained recording callers, and 8 → 0 on
+2026-08-31, when the remaining eight were audited and each registered against the caller
+that records for it. All 11 are printed with that caller named, so the list stays readable
+as *why* each is not silent rather than as an absence.
+
+**This document and `CODING.md` both said 8 until 2026-09-06** — a figure stated twice,
+which is the case `AGENTS.md`'s third writing rule names, and it drifted in both places at
+once because neither is derived. `status.sh` prints the live number beside them.
+
 It exits non-zero on one thing only: an exemption naming a site that no longer exists,
 which reads as a check still being made.
 

@@ -54,13 +54,19 @@ Needs Rust 1.94 or later.
 cargo build --release
 ```
 
-Text extraction needs two Adobe resource repositories that `external/` does not carry —
-they answer opposite questions, and reading one for the other's job is how 7,617 CIDs of
-Adobe-Japan1 came to be unreadable:
+Text extraction needs two Adobe resource repositories. They answer opposite questions,
+and reading one for the other's job is how 7,617 CIDs of Adobe-Japan1 came to be
+unreadable. **`external/` carries both as submodules**, pinned to a commit each, so a
+clone that took them needs nothing further:
 
 ```bash
-./scripts/dev/fetch_font_resources.sh
+git submodule update --init            # what a clone should do
+./scripts/dev/fetch_font_resources.sh  # or this, if it did not
 ```
+
+The script clones the same two repositories at their tips rather than at the pinned
+commits, so the two mechanisms do not agree about *which* data you get. That is a knot
+worth untying — one resource should have one way in — and it is not untied here.
 
 That gives you `target/release/fepdf` (command line) and `target/release/fepdf-gui`
 (desktop). The GUI wants a GPU; the CLI does not.

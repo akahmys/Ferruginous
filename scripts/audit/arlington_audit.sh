@@ -1,6 +1,15 @@
 #!/bin/bash
 # Arlington PDF Model External Auditor Wrapper
-# Usage: ./scripts/arlington_audit.sh <target.pdf>
+# Usage: ./scripts/audit/arlington_audit.sh <target.pdf>
+#
+# Needs two things this repository does not carry, and says which is missing rather than
+# failing on a bare "No such file or directory" as it did until 2026-09-06:
+#
+#   .arlington-venv      `make setup-arlington`
+#   external/arlington   cloned by hand; `.gitignore` excludes `/external/` and nothing
+#                        fetches this one. `ROADMAP.md` called it "already a submodule"
+#                        until 2026-09-06 — it is not, and that is why nothing fetches it.
+#                        https://github.com/pdf-association/arlington-pdf-model
 
 set -e
 
@@ -20,6 +29,18 @@ echo "TSVs: $TSV_DIR"
 
 if [ ! -f "$TARGET_PDF" ]; then
     echo "Error: Target PDF not found at $TARGET_PDF"
+    exit 1
+fi
+
+if [ ! -x "$PYTHON_BIN" ]; then
+    echo "Error: $PYTHON_BIN is not there. Run 'make setup-arlington' first." >&2
+    exit 1
+fi
+
+if [ ! -f "$AUDITOR_SCRIPT" ] || [ ! -d "$TSV_DIR" ]; then
+    echo "Error: the Arlington model is not in external/arlington." >&2
+    echo "       Nothing in this repository fetches it; clone it there by hand:" >&2
+    echo "       git clone https://github.com/pdf-association/arlington-pdf-model external/arlington" >&2
     exit 1
 fi
 

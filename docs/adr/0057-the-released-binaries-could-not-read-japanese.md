@@ -24,7 +24,7 @@ written for a program that ships its data.
 The engine says so plainly, once per font: *"belongs to character collection Adobe-Japan1,
 whose CID-to-Unicode table this engine does not carry … left its codes unnamed"*. Everything
 [ADR-0041](0041-a-character-collection-is-declared-not-guessed.md) and
-[ADR-0044](0044-the-other-four-collections-were-on-disk.md) established is unavailable in
+[ADR-0044](0044-the-other-four-collections-were-already-on-disk.md) established is unavailable in
 the product.
 
 **It was not an oversight in packaging. The build machine did not have the data either.**

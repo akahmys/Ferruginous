@@ -1,3 +1,12 @@
+# The section name is a label, not a path. `extern/adobe-cmaps` below names a directory
+# that does not exist, and that is harmless: git resolves the submodule through `path`.
+#
+# Renaming it to match was tried on 2026-09-06 and reverted the same minute. `.git/config`
+# keeps the *old* name in every existing checkout, so the rename makes git report the
+# submodule as uninitialised until each of them runs `git submodule sync` — and sync skips
+# a submodule it already thinks is uninitialised, so the repair is a manual
+# `git config --rename-section`. A tidier label is not worth that.
+
 [submodule "extern/adobe-cmaps"]
 	path = external/adobe-cmaps
 	url = https://github.com/adobe-type-tools/cmap-resources.git
