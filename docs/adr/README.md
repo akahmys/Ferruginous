@@ -126,3 +126,4 @@ quietly wrong — which is the failure this log exists to make visible.
 | 0059 | [What holds fy05.pdf below its old reading is a running head in the margin](0059-what-holds-fy05-below-its-old-reading.md) | Measures 0050 |
 | 0060 | [A reference chain is bounded by what it has already seen, not by a number](0060-a-reference-chain-is-bounded-by-what-it-has-seen.md) | — |
 | 0061 | [Four more walks are bounded, and two of the six were not what the sweep said](0061-four-walks-bounded-and-two-that-were-not-what-the-sweep-said.md) | Closes 0060 |
+| 0062 | [A page tree that is not a tree is reported, not expanded](0062-a-page-tree-that-is-not-a-tree-is-reported-not-expanded.md) | Found by 0061 |

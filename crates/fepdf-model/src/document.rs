@@ -1163,7 +1163,8 @@ impl Document {
         let mut pages = Vec::new();
         match self.get_pages_root() {
             Ok(root) => {
-                if let Err(why) = self.walk_pages_recursive(root, &mut pages, 0) {
+                let mut seen = std::collections::BTreeSet::new();
+                if let Err(why) = self.walk_pages_recursive(root, &mut pages, 0, &mut seen) {
                     self.record(crate::interpretation::Decision::violation(
                         "7.7.3.2",
                         format!("the page tree could not be walked: {why}"),
@@ -1184,14 +1185,32 @@ impl Document {
         pages
     }
 
+    /// Collects the leaves under `node_h`, refusing to walk the same node twice.
+    ///
+    /// **Two guards, because they answer different questions.** `seen` is what makes the
+    /// count right: 7.7.3.2 requires a page tree, every node of which has one `/Parent`,
+    /// so a node reached twice is not conforming and expanding it invents pages. `depth`
+    /// is what keeps the stack safe on a tree that is deep and legitimate — those are not
+    /// bounded by the object count, because each level is a separate object and the
+    /// parser's nesting limit does not apply across them.
+    ///
+    /// **Before 2026-09-05 there was only `depth`, and it produced a wrong answer
+    /// quietly.** A two-node loop around a single page read as **sixteen pages** — one
+    /// pushed every two levels until the limit — and was written back out as
+    /// `/Kids [6 0 R x16]` with `DECISIONS TAKEN READING` saying "none".
     fn walk_pages_recursive(
         &self,
         node_h: Handle<Object>,
         out: &mut Vec<Handle<Object>>,
         depth: usize,
+        seen: &mut std::collections::BTreeSet<Handle<Object>>,
     ) -> PdfResult<()> {
         if depth > 32 {
             return Err(PdfError::Other("Page tree depth limit exceeded".into()));
+        }
+        if !seen.insert(node_h) {
+            self.record_second_visit(node_h);
+            return Ok(());
         }
 
         let dict_h = self.resolve_to_dict(node_h)?;
@@ -1213,18 +1232,60 @@ impl Document {
             return Ok(());
         }
 
-        let kids_key = self.arena.name("Kids");
-        if let Some(kids_obj) = dict.get(&kids_key) {
-            let ah = kids_obj
-                .resolve(&self.arena)
-                .as_array()
-                .ok_or_else(|| PdfError::Other("Invalid Kids array".into()))?;
-            if let Some(kids) = self.arena.get_array(ah) {
-                for kid in kids {
-                    if let Some(h) = kid.as_reference() {
-                        let _ = self.walk_pages_recursive(h, out, depth + 1);
-                    }
-                }
+        self.walk_kids(&dict, out, depth, seen)
+    }
+
+    /// Records that the page tree came back to a node it had already walked.
+    ///
+    /// Not an error, which is why the caller records and returns `Ok`: reaching a node
+    /// twice is not a failure of the subtree below it, it is a node already counted.
+    /// Routed through [`Self::walk_kids`]'s error path it read "the page tree does not
+    /// walk below object 2", which says the wrong thing about it.
+    fn record_second_visit(&self, node_h: Handle<Object>) {
+        self.record(crate::interpretation::Decision::violation(
+            "7.7.3.2",
+            format!(
+                "the page tree reaches object {} a second time, so it is not a tree",
+                node_h.index()
+            ),
+            "did not walk it again, so the pages under it are counted once",
+        ));
+    }
+
+    /// Walks each `/Kids` entry of one node, recording the branches that will not walk.
+    ///
+    /// **Recorded and not swallowed.** This loop read
+    /// `let _ = self.walk_pages_recursive(..)` until 2026-09-05, one scope deeper than
+    /// the two that [`Self::find_all_pages`]'s own doc comment describes removing — so
+    /// the depth limit's error went nowhere and a looping tree was expanded in silence.
+    /// A failing branch still does not take the rest of the document with it, which is
+    /// why this records rather than propagates.
+    fn walk_kids(
+        &self,
+        dict: &BTreeMap<Handle<PdfName>, Object>,
+        out: &mut Vec<Handle<Object>>,
+        depth: usize,
+        seen: &mut std::collections::BTreeSet<Handle<Object>>,
+    ) -> PdfResult<()> {
+        let Some(kids_obj) = dict.get(&self.arena.name("Kids")) else {
+            return Ok(());
+        };
+        let ah = kids_obj
+            .resolve(&self.arena)
+            .as_array()
+            .ok_or_else(|| PdfError::Other("Invalid Kids array".into()))?;
+        let Some(kids) = self.arena.get_array(ah) else {
+            return Ok(());
+        };
+        for kid in kids {
+            if let Some(h) = kid.as_reference()
+                && let Err(why) = self.walk_pages_recursive(h, out, depth + 1, seen)
+            {
+                self.record(crate::interpretation::Decision::violation(
+                    "7.7.3.2",
+                    format!("the page tree does not walk below object {}: {why}", h.index()),
+                    "stopped there and kept the pages reached by the other branches",
+                ));
             }
         }
         Ok(())
@@ -1723,5 +1784,105 @@ mod permission_notice {
         let doc = with(Some(Access::User), Some(!0b0010_0000));
         let decision = doc.permissions_lost_on_write().expect("bit 6 is clear");
         assert!(decision.found.contains("annotation"), "{decision}");
+    }
+}
+
+#[cfg(test)]
+mod page_tree_is_a_tree {
+    //! 7.7.3.2 requires a page tree. A file that presents a graph is reported as one.
+
+    use super::*;
+    use crate::ingest::IngestionOptions;
+
+    fn assemble(objects: &[&str]) -> bytes::Bytes {
+        use std::fmt::Write as _;
+        let mut out = String::from("%PDF-2.0\n");
+        let mut offsets = Vec::new();
+        for (index, body) in objects.iter().enumerate() {
+            offsets.push(out.len());
+            let _ = write!(out, "{} 0 obj\n{body}\nendobj\n", index + 1);
+        }
+        let table_at = out.len();
+        let size = objects.len() + 1;
+        let _ = write!(out, "xref\n0 {size}\n0000000000 65535 f \n");
+        for offset in &offsets {
+            let _ = writeln!(out, "{offset:010} 00000 n ");
+        }
+        let _ =
+            write!(out, "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{table_at}\n%%EOF\n");
+        bytes::Bytes::from(out.into_bytes())
+    }
+
+    fn open(objects: &[&str]) -> Document {
+        Document::open(assemble(objects), &IngestionOptions::default()).expect("the fixture reads")
+    }
+
+    /// A `/Kids` that names an ancestor yields the pages that are there, and says so.
+    ///
+    /// **This is the defect it was written for.** The walk had a depth limit and no
+    /// memory, so it followed the loop until the limit: one page pushed every two levels
+    /// until depth 32 gave **sixteen**. The document then *was* sixteen pages — written
+    /// back out as `/Kids [6 0 R x16]` — and `DECISIONS TAKEN READING` said "none".
+    ///
+    /// Verified by removing the visited set: the count returns to 16 and the violation
+    /// disappears. A depth limit cannot catch this; only remembering can.
+    #[test]
+    fn a_kids_that_names_an_ancestor_counts_its_page_once() {
+        let doc = open(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>",
+            "<< /Type /Pages /Parent 2 0 R /Kids [2 0 R] /Count 1 >>",
+        ]);
+
+        assert_eq!(doc.find_all_pages().len(), 1, "the file has one page object");
+
+        let decisions = doc.decisions.entries();
+        let found = decisions.iter().find(|d| d.clause == "7.7.3.2").expect(
+            "a page tree that is not a tree is a departure from 7.7.3.2 and must be recorded",
+        );
+        assert_eq!(found.severity, crate::interpretation::Severity::Violation);
+        assert!(found.found.contains("a second time"), "{}", found.found);
+    }
+
+    /// A nested page tree that is a tree still yields every page.
+    ///
+    /// Without this, a `seen` that pruned too eagerly — or one keyed on the wrong thing —
+    /// passes the test above by finding nothing at all.
+    #[test]
+    fn a_nested_tree_still_yields_every_page() {
+        let doc = open(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 3 >>",
+            "<< /Type /Pages /Parent 2 0 R /Kids [5 0 R 6 0 R] /Count 2 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>",
+            "<< /Type /Page /Parent 3 0 R /MediaBox [0 0 612 792] >>",
+            "<< /Type /Page /Parent 3 0 R /MediaBox [0 0 612 792] >>",
+        ]);
+
+        assert_eq!(doc.find_all_pages().len(), 3, "two levels, three leaves");
+        assert!(
+            doc.decisions.entries().iter().all(|d| d.clause != "7.7.3.2"),
+            "a conforming tree records nothing"
+        );
+    }
+
+    /// One page named twice under one parent is counted once, and reported.
+    ///
+    /// The looping case above needs two levels to close; this is the one-level form of
+    /// the same non-conformance, and it is the shape a producer actually emits.
+    #[test]
+    fn a_page_named_twice_is_counted_once() {
+        let doc = open(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R 3 0 R] /Count 2 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>",
+        ]);
+
+        assert_eq!(doc.find_all_pages().len(), 1, "one page object, named twice");
+        assert!(
+            doc.decisions.entries().iter().any(|d| d.clause == "7.7.3.2"),
+            "naming the same page twice is a departure and is recorded"
+        );
     }
 }
