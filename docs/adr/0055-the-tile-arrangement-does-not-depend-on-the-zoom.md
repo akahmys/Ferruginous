@@ -45,8 +45,14 @@ at 25%. **That is where the zoom floor came from** — below 20% the grid only s
 the middle of the screen (ADR-0053).
 
 **The reach of the overview fell with it**, from the 253 pages measured at the old floor to
-40 or 50. Seeing more at once is now a question for the column count, and ten is a guess:
-it fits a laptop window at the floor and was not derived from anything else.
+40 or 50 — which is more than Acrobat or Preview put in a thumbnail pane, and this is a
+view for arranging pages rather than surveying them.
+
+**Ten is not a guess: a row of ten can be counted.** Row `n` holds pages `10n + 1` to
+`10n + 10`, so the number of any tile is read off its position. Fitting the count to the
+window would take that away and give back only a fuller screen, and a fuller screen is a
+screen of smaller tiles: an A4 tile is 119 pixels wide at the zoom floor already, and
+sixteen across would need 2,058 pixels of a 1,466-pixel viewport.
 
 **Each part fails a test when removed**, verified by removing each in turn: a wrong column
 count, a row that does not clear the tallest page in it, right-to-left ignored, the column

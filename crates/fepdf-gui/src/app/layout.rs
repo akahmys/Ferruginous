@@ -108,6 +108,14 @@ impl FepdfApp {
     /// page space and does not depend on the zoom or the window at all, so zooming is what
     /// it looks like: moving towards or away from one fixed sheet of pages.
     ///
+    /// **Ten, because a row of ten can be counted.** Row `n` holds pages `10n + 1` to
+    /// `10n + 10`, so the number of any tile is read off its position without counting
+    /// along the row. Fitting the count to the window would take that away and give back
+    /// only a fuller screen — and a screen holding more pages holds smaller ones: at the
+    /// zoom floor an A4 tile is already 119 pixels wide, and sixteen across would need
+    /// 2,058 of a 1,466-pixel viewport, so they would have to shrink past the size at which
+    /// one page can be told from another.
+    ///
     /// The cost is that the grid no longer fits itself to the window. Ten A4 pages across
     /// is 6,430 page units, which at 22% is 1,415 pixels and fills an ordinary window, at
     /// 25% overflows it, and at the zoom floor occupies less than half of it. That is what
