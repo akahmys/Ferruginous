@@ -3,7 +3,7 @@
 use fepdf_content::Interpreter;
 use fepdf_content::{FallbackFontType, RenderBackend, TextGlyph, TextState};
 use fepdf_model::graphics::{BlendMode, Color, PixelFormat, StrokeStyle, WindingRule};
-use fepdf_model::{Document, Handle, Object, PdfResult};
+use fepdf_model::{Document, Handle, Object, PdfError, PdfResult};
 use kurbo::{Affine, BezPath};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -1033,6 +1033,20 @@ impl HeuristicEngine {
         redacted_op_indices
     }
 
+    /// Rewrites the stream, scrubbing the strings shown by the named operators.
+    ///
+    /// **The index has to be the interpreter's, and until 2026-09-06 it was not.**
+    /// `Interpreter::op_index` counts operator tokens and is incremented *before* the
+    /// operator runs, so a page of four `Tj`s reports 4, 9, 14 and 19. This counted
+    /// operators *and* strings, and tested a string before incrementing, so it offered
+    /// 3, 9, 15 and 21. The two sets meet at 9 and nowhere else — which is why redaction
+    /// removed the second run of a page and no other, whatever rectangle it was given,
+    /// and why a rectangle over the whole page left three of four runs in place.
+    ///
+    /// A string is scrubbed because of the operator that *shows* it, so the operands are
+    /// held until that operator arrives. `TJ`'s array reaches this as its own tokens, so
+    /// every string in it is scrubbed and the kerning numbers between them are not; `"`
+    /// keeps its two leading numbers for the same reason.
     fn rewrite_redacted_tokens(
         data: bytes::Bytes,
         redacted_op_indices: &std::collections::BTreeSet<usize>,
@@ -1040,29 +1054,39 @@ impl HeuristicEngine {
         use fepdf_model::lexer::{Lexer, Token};
         let mut lexer = Lexer::new(data);
         let mut output = Vec::new();
+        let mut operands: Vec<Token> = Vec::new();
         let mut op_index = 0;
 
         while let Ok(token) = lexer.next_token() {
             if token == Token::EOF {
                 break;
             }
-
-            if let Token::Keyword(_) = &token {
-                token.write_to(&mut output);
-                op_index += 1;
-            } else if matches!(token, Token::String(_) | Token::Hex(_)) {
-                if redacted_op_indices.contains(&op_index) {
-                    let redacted_tok = Token::String(bytes::Bytes::from("[REDACTED]"));
-                    redacted_tok.write_to(&mut output);
+            let Token::Keyword(ref op) = token else {
+                operands.push(token);
+                continue;
+            };
+            op_index += 1;
+            let scrub = redacted_op_indices.contains(&op_index) && Self::shows_text(op);
+            for operand in std::mem::take(&mut operands) {
+                if scrub && matches!(operand, Token::String(_) | Token::Hex(_)) {
+                    Token::String(bytes::Bytes::from("[REDACTED]")).write_to(&mut output);
                 } else {
-                    token.write_to(&mut output);
+                    operand.write_to(&mut output);
                 }
-                op_index += 1;
-            } else {
-                token.write_to(&mut output);
             }
+            token.write_to(&mut output);
+        }
+        // Operands with no operator after them are not ours to change, but they are the
+        // caller's bytes and must survive the round trip.
+        for operand in operands {
+            operand.write_to(&mut output);
         }
         output
+    }
+
+    /// The four operators of 9.4.3 that draw a string.
+    fn shows_text(operator: &str) -> bool {
+        matches!(operator, "Tj" | "TJ" | "'" | "\"")
     }
 }
 
@@ -1089,7 +1113,17 @@ pub fn apply_physical_redaction_to_page(
         let res_dh = page.resources_handle();
         let mut interpreter =
             Interpreter::new(&mut collector, doc, res_dh, kurbo::Affine::IDENTITY);
-        let _ = interpreter.execute_raw(&data);
+        // Refused rather than swallowed. A page this could not interpret yields no spans,
+        // so nothing intersects the rectangles, so the scrub finds nothing to do — and
+        // the caller was told `Ok(())` about a page whose text is still there. For an
+        // operation whose whole purpose is that something is *gone*, "I could not read
+        // it" and "there was nothing there" must not arrive as the same answer.
+        if let Err(why) = interpreter.execute_raw(&data) {
+            return Err(PdfError::Other(
+                format!("page {page_index} could not be interpreted, so nothing was redacted from it: {why}")
+                    .into(),
+            ));
+        }
 
         // 2. Identify which op_indices intersect the redacted rectangles
         let redacted_op_indices =

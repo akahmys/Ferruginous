@@ -128,3 +128,4 @@ quietly wrong — which is the failure this log exists to make visible.
 | 0061 | [Four more walks are bounded, and two of the six were not what the sweep said](0061-four-walks-bounded-and-two-that-were-not-what-the-sweep-said.md) | Closes 0060 |
 | 0062 | [A page tree that is not a tree is reported, not expanded](0062-a-page-tree-that-is-not-a-tree-is-reported-not-expanded.md) | Found by 0061 |
 | 0063 | [One set of accessors, because two of them disagreed about one dictionary](0063-one-set-of-accessors-because-two-disagreed-about-one-dictionary.md) | — |
+| 0064 | [Redaction removed the second run of a page and no other](0064-redaction-removed-the-second-run-of-a-page-and-no-other.md) | — |
