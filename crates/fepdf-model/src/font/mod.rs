@@ -2794,11 +2794,40 @@ fn resolve_name_or_string(arena: &PdfArena, o: &Object) -> Option<String> {
     }
 }
 
+/// How deep a `/DescendantFonts` chain is followed before it is taken to be looping.
+///
+/// The same 64 the field-tree and `/Next` walks use, and a depth rather than a visited
+/// set for the reason [ADR-0060] gives: this is a tree.
+///
+/// [ADR-0060]: ../../../../docs/adr/0060-a-reference-chain-is-bounded-by-what-it-has-seen.md
+const MAX_DESCENDANT_DEPTH: usize = 64;
+
+/// Whether this font or any font it descends from carries an embedded font file.
+///
+/// **Bounded since 2026-09-06.** A Type0 font whose `/DescendantFonts` names itself made
+/// this follow it forever, and `fepdf inspect audit` aborted on a five-object file:
+/// `fatal runtime error: stack overflow`. RR-15 Rule 6.
+///
+/// Found by `scripts/audit/unbounded_recursion.py` on the run that first listed anything,
+/// after five hand sweeps and a throwaway detector had all passed over it — the detector
+/// looked for `/Kids`, `/K` and `/Next` in the body and this walk names none of them.
 fn check_font_embedding(
     arena: &PdfArena,
     dict: &std::collections::BTreeMap<crate::handle::Handle<crate::object::PdfName>, Object>,
     fv: crate::handle::Handle<crate::object::PdfName>,
 ) -> bool {
+    check_font_embedding_at(arena, dict, fv, 0)
+}
+
+fn check_font_embedding_at(
+    arena: &PdfArena,
+    dict: &std::collections::BTreeMap<crate::handle::Handle<crate::object::PdfName>, Object>,
+    fv: crate::handle::Handle<crate::object::PdfName>,
+    depth: usize,
+) -> bool {
+    if depth >= MAX_DESCENDANT_DEPTH {
+        return false;
+    }
     let desc_key = arena.get_name_by_str("FontDescriptor").unwrap_or(fv);
     let (f1, f2, f3) = (
         arena.get_name_by_str("FontFile"),
@@ -2822,7 +2851,7 @@ fn check_font_embedding(
         for item in arr {
             if let Some(dh) = item.resolve(arena).as_dict_handle()
                 && let Some(dd) = arena.get_dict(dh)
-                && check_font_embedding(arena, &dd, fv)
+                && check_font_embedding_at(arena, &dd, fv, depth + 1)
             {
                 return true;
             }
@@ -2949,6 +2978,60 @@ impl fepdf_font::reconstruction::FontInfo for FontResource {
     }
     fn to_gid_hint(&self, cid: u32, _hint_name: Option<&str>) -> u32 {
         self.to_gid(cid, None)
+    }
+}
+
+#[cfg(test)]
+mod descendant_fonts {
+    //! A `/DescendantFonts` that names its own font is followed once, not forever.
+
+    use crate::Document;
+    use crate::ingest::IngestionOptions;
+
+    /// **The defect this was written for.** `fepdf inspect audit` aborted with
+    /// `fatal runtime error: stack overflow` on the five objects below: object 5 is a
+    /// Type0 font whose `/DescendantFonts` array names object 5.
+    ///
+    /// Found by `scripts/audit/unbounded_recursion.py`, on the run that first listed
+    /// anything. Five sweeps by hand and a throwaway detector had passed over it — the
+    /// detector looked for `/Kids`, `/K` and `/Next`, and this walk names none of them.
+    #[test]
+    fn a_font_that_descends_from_itself_is_not_followed_forever() {
+        use std::fmt::Write as _;
+        let objects = [
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] \
+              /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+            "<< /Length 34 >>\nstream\nBT /F1 12 Tf 20 100 Td (hi) Tj ET\nendstream",
+            "<< /Type /Font /Subtype /Type0 /BaseFont /X /Encoding /Identity-H \
+              /DescendantFonts [5 0 R] >>",
+        ];
+        let mut out = String::from("%PDF-2.0\n");
+        let mut offsets = Vec::new();
+        for (index, body) in objects.iter().enumerate() {
+            offsets.push(out.len());
+            let _ = write!(out, "{} 0 obj\n{body}\nendobj\n", index + 1);
+        }
+        let table_at = out.len();
+        let size = objects.len() + 1;
+        let _ = write!(out, "xref\n0 {size}\n0000000000 65535 f \n");
+        for offset in &offsets {
+            let _ = writeln!(out, "{offset:010} 00000 n ");
+        }
+        let _ =
+            write!(out, "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{table_at}\n%%EOF\n");
+
+        let doc =
+            Document::open(bytes::Bytes::from(out.into_bytes()), &IngestionOptions::default())
+                .expect("the fixture opens");
+        let fonts = doc.fonts();
+
+        assert!(!fonts.is_empty(), "the font is surveyed rather than skipped");
+        assert!(
+            !fonts[0].is_embedded,
+            "a font that descends only from itself carries no font file"
+        );
     }
 }
 

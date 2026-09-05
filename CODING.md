@@ -20,7 +20,7 @@ Derived from aerospace safety principles, the **RR-15 (Reliable Rust-15)** rules
 | **Rule 3** | Unsafe Ban | `unsafe` blocks are forbidden. | **rustc** — `unsafe_code = "forbid"`, which cannot be overridden by an `#[allow]` |
 | **Rule 4** | Control Flow | Avoid deep nesting (`if let` / `match`). Prefer early return with `?`. | Code review / Clippy |
 | **Rule 5** | Match Exhaustiveness | Wildcard arms (`_ =>`) are forbidden when matching a **domain enum**. Named exceptions below. | `clippy::wildcard_enum_match_arm` via `verify_compliance.sh` |
-| **Rule 6** | Stack Safety | Unbounded recursion is forbidden. Use heap-based loops with `Vec`. | Code review |
+| **Rule 6** | Stack Safety | Unbounded recursion is forbidden. Use heap-based loops with `Vec`. | `scripts/audit/unbounded_recursion.py` via `verify_compliance.sh`, for walks over a document's graph. Detail below |
 | **Rule 7** | Global State | `static mut` and global mutable state are forbidden. | **rustc** — reading a `static mut` needs an `unsafe` block, which Rule 3 forbids |
 | **Rule 8** | Invalid State | Use type-safe `enum` states instead of boolean flags or nested `Option`s. | Architecture review |
 | **Rule 9** | Pure Rust | No dependency may compile C or C++ source, or bind a third-party native library. Platform API bindings the standard library already needs are not this. | `./scripts/audit/verify_compliance.sh` |
@@ -77,6 +77,40 @@ engine is built for it.
 `deny.toml`, scoped to that crate and that target
 ([ADR-0033](docs/adr/0033-the-linux-gui-keeps-wayland-so-rule-9-names-one-exemption.md)).
 Any other `cc` in any tree fails the audit.
+
+### Rule 6 in detail: what a checker can and cannot see
+
+This column said **Code review** until 2026-09-06, and review missed five walks in one
+week. A four-object file crashed `inspect catalog`
+([ADR-0060](docs/adr/0060-a-reference-chain-is-bounded-by-what-it-has-seen.md));
+`DeleteStructElem` and `SetFormFieldValue` aborted on a cyclic `/K` or `/Kids`
+([ADR-0061](docs/adr/0061-four-walks-bounded-and-two-that-were-not-what-the-sweep-said.md));
+the writer's page walk was unreachable only because the reader expanded a cyclic page tree
+before it
+([ADR-0062](docs/adr/0062-a-page-tree-that-is-not-a-tree-is-reported-not-expanded.md)).
+The throwaway detector used for those sweeps produced two false positives of its own.
+
+`scripts/audit/unbounded_recursion.py` finds cycles in one file's call graph and reports
+those where no participant carries a depth, a visited set or a worklist. **Its first run
+found a sixth walk none of the sweeps had**: a Type0 font whose `/DescendantFonts` names
+itself aborted `inspect audit` on five objects.
+
+**It reports one class and counts two others**, because they are different risks:
+
+| | |
+| :--- | :--- |
+| **Reported** — a walk over a document's own graph | An arena, a `Handle`, a `Dict`. A file can make these into a loop, and nothing but a guard stops it |
+| **Counted** — a walk over an owned Rust structure | A `Vec<Node>` the program built cannot be cyclic; Rust will not allow it without an `Rc`. The depth is however deep the thing was built |
+| **Exempt** — named, with the guard given | Eight, all one guard: these follow *direct* nesting and not `Object::Reference`, and `Parser` refuses past 512 levels |
+
+**Where it does not reach**, and so what the exemption list is for: recursion through a
+trait object or a closure, and mutual recursion split across two files. It also had to be
+taught that `a.cmp(b)` inside `fn cmp` is not recursion and that `Vec::new()` inside
+`fn new` is not either — accepting any capitalised path put eighty cycles in its first run
+and made it useless, which is the same failure the throwaway detector had.
+
+It exits non-zero on an unguarded, unexempted cycle, and on an exemption naming a function
+that is no longer recursive.
 
 ### Rule 5 in detail: what "no wildcards" can and cannot mean
 

@@ -66,12 +66,16 @@ Execute the master audit script:
 ./scripts/audit/verify_compliance.sh
 ```
 
-**Fifteen steps**, in the order the script runs them. Derive this list rather than
-maintaining it:
+**Sixteen steps**, in the order the script runs them. Derive this list rather than
+maintaining it — and derive it from the lines that *are* steps:
 
 ```bash
-grep -oE '\[Rule [0-9]+\]' scripts/audit/verify_compliance.sh
+grep -oE '^echo "\[[A-Za-z0-9 ]+\]' scripts/audit/verify_compliance.sh
 ```
+
+The obvious form, `grep -oE '\[Rule [0-9]+\]'`, was here until 2026-09-06 and reported a
+`[Rule 17]` that is not a step: it is a comment recording what the clippy step was called
+before Rule 17 was retired. A derivation that reads comments is not a derivation.
 
 | | Step | Rule |
 | ---: | :--- | :--- |
@@ -87,9 +91,10 @@ grep -oE '\[Rule [0-9]+\]' scripts/audit/verify_compliance.sh
 | 10 | `cargo check --workspace` | — |
 | 11 | `cargo clippy --workspace --all-targets -- -D warnings` | 4, 5 |
 | 12 | **No dependency that compiles C** | **9** |
-| 13 | `cargo fmt --all --check` | 19 |
-| 14 | `cargo deny check licenses` | 16 |
-| 15 | `betterleaks dir .` | 18 |
+| 13 | **No unbounded recursion over a document's graph** | **6** |
+| 14 | `cargo fmt --all --check` | 19 |
+| 15 | `cargo deny check licenses` | 16 |
+| 16 | `betterleaks dir .` | 18 |
 
 **Rules 3 and 7 are not here and are not unenforced.** `unsafe_code = "forbid"` fails the
 build on an `unsafe` block, and a `static mut` cannot be read without one, so `rustc`
@@ -98,8 +103,14 @@ greps that used to sit here matched `unsafe {`, missed `unsafe(`, and ran after 
 that had already succeeded.
 
 `CODING.md` states each rule; this table states only which the script enforces. Rules 4,
-6, 8 and 20 are in `CODING.md` and **not** here, because nothing automated checks them —
+8 and 20 are in `CODING.md` and **not** here, because nothing automated checks them —
 each names review instead, per the rule that an unchecked rule is a comment.
+
+**Rule 6 joined the table on 2026-09-06**, and what it took to get there is the argument
+for the rule that put it in `CODING.md` with "Code review" in the first place. Review
+missed five unbounded walks in one week, three of which aborted the process on files of
+four or five objects, and `scripts/audit/unbounded_recursion.py` found a sixth on its
+first run. `CODING.md`'s "Rule 6 in detail" says what it sees and what it does not.
 
 **Rule 20 has a counter, which is not the same as a check.**
 `scripts/audit/silent_branches.py` lists the wildcard arms where a value read out of a

@@ -350,6 +350,27 @@ fi
 # Rule 19: Formatting
 #
 # Previously only `make fmt` checked this, and nothing forced anyone to run it,
+# Rule 6: Stack Safety
+#
+# This column read "Code review" until 2026-09-06, and review missed five walks. A
+# four-object file crashed `inspect catalog` (ADR-0060), two operations aborted on a
+# cyclic `/K` or `/Kids` (ADR-0061), and the writer's page walk was safe only because the
+# reader expanded a cyclic page tree first (ADR-0062). The script's own first run then
+# found a sixth that none of those sweeps had: a Type0 font whose `/DescendantFonts`
+# names itself aborted `inspect audit` on five objects.
+#
+# It reports only walks over a *document's* graph, because those are the ones a file can
+# make into a loop; a recursion over an owned Rust tree is counted and not reported.
+echo "[Rule 6] Checking for unbounded recursion over a document's graph..."
+if python3 scripts/audit/unbounded_recursion.py > /tmp/fepdf_rule6.$$ 2>&1; then
+    echo "  PASS ($(grep -c '^  crates' /tmp/fepdf_rule6.$$ | tr -d ' ') exempt, each with its guard named)"
+else
+    echo "  FAIL:"
+    sed 's/^/    /' /tmp/fepdf_rule6.$$
+    ERROR=1
+fi
+rm -f /tmp/fepdf_rule6.$$
+
 # so diffs accumulated silently while the audit stayed green. Rule 1 reads the
 # "// RR-15 Limit:" marker from a function's signature region rather than its
 # fn line precisely so that formatting and the audit can both hold at once.
