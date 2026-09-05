@@ -6,15 +6,14 @@
 //! about a document decrypting to noise. Conformance is therefore stated per file,
 //! against what the code actually implements rather than what the dictionary declares.
 
+use crate::access::{self, Dict};
 use crate::arena::PdfArena;
 use crate::decrypt;
 use crate::error::{PdfError, PdfResult};
-use crate::handle::Handle;
 use crate::interpretation::Decision;
-use crate::object::{Object, PdfName};
+use crate::object::Object;
 use crate::reader::{self, DictHandle};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 
 /// How far the engine conforms in handling a given security handler.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -210,14 +209,14 @@ impl EncryptionReport {
             .and_then(|t| raw.arena.get_dict(t))
             .is_none_or(|d| !d.contains_key(&raw.arena.name("Encrypt")));
 
-        let version = integer(&raw.arena, &encrypt, "V");
-        let revision = integer(&raw.arena, &encrypt, "R");
+        let version = access::integer_at(&raw.arena, &encrypt, "V");
+        let revision = access::integer_at(&raw.arena, &encrypt, "R");
         let crypt_filters = read_crypt_filters(&raw.arena, &encrypt);
         let (conformance, conformance_note) = judge(version, revision);
 
         Ok(Self {
             encrypted: true,
-            handler: name(&raw.arena, &encrypt, "Filter"),
+            handler: access::name_at(&raw.arena, &encrypt, "Filter"),
             version,
             revision,
             key_bits: key_bits(&raw.arena, &encrypt, version),
@@ -226,7 +225,8 @@ impl EncryptionReport {
                 .find(|f| f.for_streams)
                 .map(|f| f.method.clone())
                 .or_else(|| version.map(|v| if v >= 4 { "unnamed" } else { "V2" }.to_string())),
-            encrypt_metadata: boolean(&raw.arena, &encrypt, "EncryptMetadata").unwrap_or(true),
+            encrypt_metadata: access::boolean_at(&raw.arena, &encrypt, "EncryptMetadata")
+                .unwrap_or(true),
             crypt_filters,
             permission_bits: security.permissions,
             permissions: decode_permissions(security.permissions),
@@ -280,78 +280,53 @@ fn read_payload(arena: &PdfArena, catalog: &Dict) -> Option<EncryptedPayload> {
     };
 
     // "shall include a Collection dictionary ... setting the collection View to H"
-    let collection = catalog.get(&arena.name("Collection")).and_then(|c| as_dict(arena, c));
+    let collection = access::dict_at(arena, catalog, "Collection");
     note(collection.is_some(), "/Collection in the catalogue");
     note(
-        collection.as_ref().is_some_and(|c| {
-            matches!(c.get(&arena.name("View")).and_then(|v| match v {
-                Object::Name(h) => arena.get_name_str(*h),
-                _ => None,
-            }), Some(v) if v == "H")
-        }),
+        collection
+            .as_ref()
+            .is_some_and(|c| matches!(access::name_at(arena, c, "View").as_deref(), Some("H"))),
         "/Collection /View /H",
     );
 
     // "the EmbeddedFiles name tree shall contain exactly one entry"
     let embedded = catalog
         .get(&arena.name("Names"))
-        .and_then(|n| as_dict(arena, n))
-        .and_then(|n| n.get(&arena.name("EmbeddedFiles")).and_then(|e| as_dict(arena, e)))
-        .and_then(|e| e.get(&arena.name("Names")).and_then(|a| as_array(arena, a)));
+        .and_then(|n| access::dict_of(arena, n))
+        .and_then(|n| access::dict_at(arena, &n, "EmbeddedFiles"))
+        .and_then(|e| access::array_at(arena, &e, "Names"));
     note(
         embedded.as_ref().is_some_and(|names| names.len() == 2),
         "exactly one entry in the EmbeddedFiles name tree",
     );
 
     // "and as an entry in the AF array in the document catalog"
-    let af = catalog.get(&arena.name("AF")).and_then(|a| as_array(arena, a));
+    let af = access::array_at(arena, catalog, "AF");
     note(af.as_ref().is_some_and(|a| !a.is_empty()), "/AF names the payload");
 
     // The file specification itself, reached through /AF.
-    let spec = af.as_ref().and_then(|a| a.first()).and_then(|f| as_dict(arena, f))?;
+    let spec = af.as_ref().and_then(|a| a.first()).and_then(|f| access::dict_of(arena, f))?;
     note(
-        matches!(name_in(arena, &spec, "AFRelationship").as_deref(), Some("EncryptedPayload")),
+        matches!(
+            access::name_at(arena, &spec, "AFRelationship").as_deref(),
+            Some("EncryptedPayload")
+        ),
         "/AFRelationship /EncryptedPayload",
     );
 
-    let ep = spec.get(&arena.name("EP")).and_then(|e| as_dict(arena, e))?;
-    let filter = name_in(arena, &ep, "Subtype")?;
+    let ep = access::dict_at(arena, &spec, "EP")?;
+    let filter = access::name_at(arena, &ep, "Subtype")?;
     note(true, "/EP /Subtype names the filter");
 
     Some(EncryptedPayload {
         filter,
-        filter_version: name_in(arena, &ep, "Version"),
-        file_name: text_in(arena, &spec, "UF").or_else(|| text_in(arena, &spec, "F")),
-        description: text_in(arena, &spec, "Desc"),
+        filter_version: access::name_at(arena, &ep, "Version"),
+        file_name: access::text_at(arena, &spec, "UF")
+            .or_else(|| access::text_at(arena, &spec, "F")),
+        description: access::text_at(arena, &spec, "Desc"),
         conditions_met: met,
         conditions_unmet: unmet,
     })
-}
-
-fn as_array(arena: &PdfArena, object: &Object) -> Option<Vec<Object>> {
-    match object {
-        Object::Array(h) => arena.get_array(*h),
-        Object::Reference(h) => match arena.get_object(*h)? {
-            Object::Array(a) => arena.get_array(a),
-            _ => None,
-        },
-        _ => None,
-    }
-}
-
-fn name_in(arena: &PdfArena, dict: &Dict, key: &str) -> Option<String> {
-    match dict.get(&arena.name(key))?.resolve(arena) {
-        Object::Name(h) => arena.get_name_str(h),
-        _ => None,
-    }
-}
-
-fn text_in(arena: &PdfArena, dict: &Dict, key: &str) -> Option<String> {
-    match dict.get(&arena.name(key))?.resolve(arena) {
-        Object::String(b) | Object::Hex(b) => Some(String::from_utf8_lossy(&b).into_owned()),
-        Object::Text(t) => Some(t),
-        _ => None,
-    }
 }
 
 /// What the engine can actually do with this `/V` and `/R`, as opposed to what the
@@ -395,7 +370,7 @@ fn decode_permissions(bits: Option<i32>) -> Vec<Permission> {
 
 /// `/Length` in bits, defaulting as 7.6.4.2 does.
 fn key_bits(arena: &PdfArena, encrypt: &Dict, version: Option<i64>) -> Option<usize> {
-    match integer(arena, encrypt, "Length") {
+    match access::integer_at(arena, encrypt, "Length") {
         Some(bits) => usize::try_from(bits).ok(),
         None => match version? {
             1 => Some(40),
@@ -406,17 +381,17 @@ fn key_bits(arena: &PdfArena, encrypt: &Dict, version: Option<i64>) -> Option<us
 }
 
 fn read_crypt_filters(arena: &PdfArena, encrypt: &Dict) -> Vec<CryptFilter> {
-    let Some(cf) = encrypt.get(&arena.name("CF")).and_then(|o| as_dict(arena, o)) else {
+    let Some(cf) = access::dict_at(arena, encrypt, "CF") else {
         return Vec::new();
     };
-    let stream_filter = name(arena, encrypt, "StmF");
-    let string_filter = name(arena, encrypt, "StrF");
+    let stream_filter = access::name_at(arena, encrypt, "StmF");
+    let string_filter = access::name_at(arena, encrypt, "StrF");
 
     let mut out: Vec<CryptFilter> = cf
         .iter()
         .filter_map(|(key, value)| {
             let name = arena.get_name_str(*key)?;
-            let filter = as_dict(arena, value)?;
+            let filter = access::dict_of(arena, value)?;
             Some(CryptFilter {
                 method: filter
                     .get(&arena.name("CFM"))
@@ -435,54 +410,81 @@ fn read_crypt_filters(arena: &PdfArena, encrypt: &Dict) -> Vec<CryptFilter> {
     out
 }
 
-type Dict = BTreeMap<Handle<PdfName>, Object>;
-
 /// The document catalogue, which 7.6.7's markers hang from.
 fn catalogue(arena: &PdfArena, trailer: DictHandle) -> Option<Dict> {
     let root = arena.get_dict(trailer)?.get(&arena.name("Root")).cloned()?;
-    as_dict(arena, &root)
+    access::dict_of(arena, &root)
 }
 
 fn encryption_dict(arena: &PdfArena, trailer: DictHandle) -> Option<Dict> {
     let value = arena.get_dict(trailer)?.get(&arena.name("Encrypt")).cloned()?;
-    as_dict(arena, &value)
-}
-
-fn as_dict(arena: &PdfArena, object: &Object) -> Option<Dict> {
-    match object {
-        Object::Dictionary(h) => arena.get_dict(*h),
-        Object::Reference(h) => match arena.get_object(*h)? {
-            Object::Dictionary(d) => arena.get_dict(d),
-            _ => None,
-        },
-        _ => None,
-    }
-}
-
-fn integer(arena: &PdfArena, dict: &Dict, key: &str) -> Option<i64> {
-    match dict.get(&arena.name(key))? {
-        Object::Integer(v) => Some(*v),
-        _ => None,
-    }
-}
-
-fn name(arena: &PdfArena, dict: &Dict, key: &str) -> Option<String> {
-    match dict.get(&arena.name(key))? {
-        Object::Name(h) => arena.get_name_str(*h),
-        _ => None,
-    }
-}
-
-fn boolean(arena: &PdfArena, dict: &Dict, key: &str) -> Option<bool> {
-    match dict.get(&arena.name(key))? {
-        Object::Boolean(v) => Some(*v),
-        _ => None,
-    }
+    access::dict_of(arena, &value)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An `/Encrypt` dictionary whose entries are written as indirect references.
+    ///
+    /// 7.3.10 permits it and the engine decrypts such a file perfectly. What it used to
+    /// do was *report* on it as though the entries were absent — measured 2026-09-05
+    /// against a real RC4-128 file with `/V`, `/R` and `/Length` written as references:
+    ///
+    /// | | reported | truth |
+    /// | :--- | :--- | :--- |
+    /// | `/Filter` | `(absent)` | `/Standard` |
+    /// | `/V`, `/R`, `/Length` | `—` | 2, 3, 128 |
+    /// | verdict | `UNSUPPORTED` | implemented |
+    ///
+    /// and `DECISIONS TAKEN READING` said the file departed from nothing while the same
+    /// run extracted its Japanese text.
+    fn indirect_encrypt_dict() -> (PdfArena, Dict) {
+        let arena = PdfArena::new();
+        let indirect = |value: Object| Object::Reference(arena.alloc_object(value));
+        let mut dict = Dict::new();
+        dict.insert(arena.name("Filter"), indirect(Object::Name(arena.name("Standard"))));
+        dict.insert(arena.name("V"), indirect(Object::Integer(2)));
+        dict.insert(arena.name("R"), indirect(Object::Integer(3)));
+        dict.insert(arena.name("Length"), indirect(Object::Integer(128)));
+        dict.insert(arena.name("EncryptMetadata"), indirect(Object::Boolean(false)));
+        (arena, dict)
+    }
+
+    /// The report reads what such a file declares, rather than reporting it as absent.
+    #[test]
+    fn an_encrypt_dictionary_written_as_references_is_read() {
+        let (arena, encrypt) = indirect_encrypt_dict();
+
+        let version = access::integer_at(&arena, &encrypt, "V");
+        let revision = access::integer_at(&arena, &encrypt, "R");
+        assert_eq!((version, revision), (Some(2), Some(3)));
+        assert_eq!(access::name_at(&arena, &encrypt, "Filter").as_deref(), Some("Standard"));
+        assert_eq!(key_bits(&arena, &encrypt, version), Some(128), "/Length behind a reference");
+
+        // The default is the trap: `.unwrap_or(true)` over an accessor that could not
+        // read the value reports the opposite of what the document says.
+        assert!(!access::boolean_at(&arena, &encrypt, "EncryptMetadata").unwrap_or(true));
+    }
+
+    /// And the verdict follows from what was read, so it stops saying UNSUPPORTED.
+    ///
+    /// `judge` matches on `(version.unwrap_or(0), revision.unwrap_or(0))`, so a pair it
+    /// could not read falls into the wildcard arm — which answers with a default and
+    /// records nothing, the ground RR-15 Rule 20 covers and nothing checks.
+    #[test]
+    fn the_verdict_follows_what_was_read() {
+        let (arena, encrypt) = indirect_encrypt_dict();
+        let version = access::integer_at(&arena, &encrypt, "V");
+        let revision = access::integer_at(&arena, &encrypt, "R");
+
+        assert_eq!(judge(version, revision).0, Conformance::Implemented);
+        assert_eq!(
+            judge(None, None).0,
+            Conformance::Unsupported,
+            "and an /Encrypt that really says nothing is still unsupported"
+        );
+    }
 
     /// `/P` from `samples/unicode_16.pdf`, written in the unsigned form.
     const P_UNICODE_16: i32 = -1036;

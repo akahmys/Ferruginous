@@ -8,11 +8,12 @@
 //! `/Encrypt` is removed once the document is unlocked. Acrobat reports error 135 for a
 //! file whose objects are plain but whose trailer still claims encryption.
 
+use crate::access::{self, Dict};
 use crate::arena::PdfArena;
 use crate::error::PdfResult;
 use crate::handle::Handle;
 use crate::interpretation::{Decision, DecisionLog};
-use crate::object::{Object, PdfName, SublimatedData};
+use crate::object::{Object, SublimatedData};
 use crate::reader::DictHandle;
 use bytes::Bytes;
 use fepdf_syntax::security::{Access, AesV5Spec, Cipher, SecurityHandler, StandardSpec};
@@ -184,9 +185,6 @@ fn unlock_objects(
     Ok(security)
 }
 
-/// A dictionary read out of the arena, keyed by interned name.
-type Dict = BTreeMap<Handle<PdfName>, Object>;
-
 /// The `/Encrypt` dictionary and, when it is indirect, the object number to skip.
 fn encryption_dict(arena: &PdfArena, trailer: DictHandle) -> Option<(Dict, Option<u32>)> {
     let entry = entry(arena, trailer, "Encrypt")?;
@@ -206,14 +204,14 @@ fn describe(arena: &PdfArena, encrypt: &Dict) -> Security {
     // document. Reading only `/V` reported a certificate-encrypted file as "Password
     // Security (AES-256) could not be unlocked", which names the wrong credential and
     // sends the reader looking for a password that does not exist.
-    let method = if name_of(arena, encrypt, "Filter").as_deref() == Some("Adobe.PubSec") {
-        match integer(arena, encrypt, "V").unwrap_or(0) {
+    let method = if access::name_at(arena, encrypt, "Filter").as_deref() == Some("Adobe.PubSec") {
+        match access::integer_at(arena, encrypt, "V").unwrap_or(0) {
             5 => "Certificate Security (AES-256)",
             4 => "Certificate Security (AES-128)",
             _ => "Certificate Security",
         }
     } else {
-        match integer(arena, encrypt, "V").unwrap_or(0) {
+        match access::integer_at(arena, encrypt, "V").unwrap_or(0) {
             5 => "Password Security (AES-256)",
             4 => "Password Security (AES-128)",
             _ => "Password Security (Standard)",
@@ -235,7 +233,7 @@ fn describe(arena: &PdfArena, encrypt: &Dict) -> Security {
 /// different key and the document decrypted to noise — silently, since nothing
 /// validates the result.
 fn permissions(arena: &PdfArena, encrypt: &Dict) -> Option<i32> {
-    let value = integer(arena, encrypt, "P")?;
+    let value = access::integer_at(arena, encrypt, "P")?;
     i32::try_from(value).ok().or_else(|| u32::try_from(value).ok().map(|bits| bits as i32))
 }
 
@@ -247,15 +245,15 @@ fn build_handler(
     credentials: Credentials<'_>,
     decisions: &mut DecisionLog,
 ) -> Option<SecurityHandler> {
-    let version = integer(arena, encrypt, "V").unwrap_or(0);
-    let revision = integer(arena, encrypt, "R").unwrap_or(0);
+    let version = access::integer_at(arena, encrypt, "V").unwrap_or(0);
+    let revision = access::integer_at(arena, encrypt, "R").unwrap_or(0);
     let id = first_file_id(arena, trailer);
     let password = credentials.password;
 
     // 7.6.5: a public-key handler names itself in /Filter and derives its key from a
     // seed in /Recipients rather than from a password. It has no /R and no /O or /U,
     // so the checks below would all read absent values.
-    if name_of(arena, encrypt, "Filter").as_deref() == Some("Adobe.PubSec") {
+    if access::name_at(arena, encrypt, "Filter").as_deref() == Some("Adobe.PubSec") {
         return build_public_key(arena, encrypt, credentials.recipient, decisions);
     }
 
@@ -275,13 +273,13 @@ fn build_handler(
         return None;
     }
 
-    let u = string(arena, encrypt, "U").unwrap_or_default();
-    let o = string(arena, encrypt, "O").unwrap_or_default();
+    let u = access::bytes_at(arena, encrypt, "U").unwrap_or_default();
+    let o = access::bytes_at(arena, encrypt, "O").unwrap_or_default();
     let spec = StandardSpec {
         owner: &o,
         permissions: permissions(arena, encrypt)?,
         file_id: &id,
-        encrypt_metadata: boolean(arena, encrypt, "EncryptMetadata").unwrap_or(true),
+        encrypt_metadata: access::boolean_at(arena, encrypt, "EncryptMetadata").unwrap_or(true),
         revision: i32::try_from(revision).ok()?,
         key_len,
         cipher,
@@ -318,8 +316,8 @@ fn build_aes256(
     revision: i64,
     decisions: &mut DecisionLog,
 ) -> Option<SecurityHandler> {
-    let (u, ue) = (string(arena, encrypt, "U")?, string(arena, encrypt, "UE")?);
-    let (o, oe) = (string(arena, encrypt, "O")?, string(arena, encrypt, "OE")?);
+    let (u, ue) = (access::bytes_at(arena, encrypt, "U")?, access::bytes_at(arena, encrypt, "UE")?);
+    let (o, oe) = (access::bytes_at(arena, encrypt, "O")?, access::bytes_at(arena, encrypt, "OE")?);
     let handler = SecurityHandler::new_aes256(
         password,
         &AesV5Spec {
@@ -328,7 +326,7 @@ fn build_aes256(
             o: &o,
             oe: &oe,
             revision: i32::try_from(revision).ok()?,
-            encrypt_metadata: boolean(arena, encrypt, "EncryptMetadata").unwrap_or(true),
+            encrypt_metadata: access::boolean_at(arena, encrypt, "EncryptMetadata").unwrap_or(true),
         },
     )?;
 
@@ -336,7 +334,7 @@ fn build_aes256(
     // permissions were edited without the key, which the standard makes detectable so
     // that stripping them cannot be silent.
     if let (Some(perms), Some(declared)) =
-        (string(arena, encrypt, "Perms"), permissions(arena, encrypt))
+        (access::bytes_at(arena, encrypt, "Perms"), permissions(arena, encrypt))
         && !handler.perms_agree(&perms, declared)
     {
         decisions.push(Decision::violation(
@@ -398,7 +396,7 @@ fn is_non_ascii_space(c: char) -> bool {
 
 /// `/Length` in bytes. It is written in bits, and defaults to 40.
 fn key_bytes(arena: &PdfArena, encrypt: &Dict) -> Option<usize> {
-    let bits = integer(arena, encrypt, "Length")?;
+    let bits = access::integer_at(arena, encrypt, "Length")?;
     usize::try_from(bits).ok().map(|b| b / 8).filter(|b| (5..=16).contains(b))
 }
 
@@ -438,7 +436,7 @@ fn build_public_key(
     }
 
     let key_len = key_bytes(arena, encrypt).unwrap_or(32);
-    let encrypt_metadata = boolean(arena, encrypt, "EncryptMetadata").unwrap_or(true);
+    let encrypt_metadata = access::boolean_at(arena, encrypt, "EncryptMetadata").unwrap_or(true);
     match SecurityHandler::open_public_key(&recipients, identity, key_len, encrypt_metadata) {
         Ok(handler) => handler,
         Err(why) => {
@@ -460,11 +458,11 @@ fn build_public_key(
 /// filters and also carries a top-level array is not this engine's problem to reconcile
 /// — the filter's own list is the one governing its streams.
 fn recipients(arena: &PdfArena, encrypt: &Dict) -> Vec<Vec<u8>> {
-    let from_filter = entry_in(arena, encrypt, "CF")
-        .and_then(|o| as_dict(arena, &o))
+    let from_filter = access::dict_at(arena, encrypt, "CF")
         .and_then(|cf| {
-            let named = name_of(arena, encrypt, "StmF").unwrap_or_else(|| "Identity".to_string());
-            cf.get(&arena.name(&named)).and_then(|o| as_dict(arena, o))
+            let named =
+                access::name_at(arena, encrypt, "StmF").unwrap_or_else(|| "Identity".to_string());
+            access::dict_at(arena, &cf, &named)
         })
         .map(|filter| strings(arena, &filter, "Recipients"))
         .unwrap_or_default();
@@ -491,11 +489,11 @@ fn strings(arena: &PdfArena, dict: &Dict, key: &str) -> Vec<Vec<u8>> {
 }
 
 fn crypt_filter_method(arena: &PdfArena, encrypt: &Dict) -> Cipher {
-    let Some(cf) = entry_in(arena, encrypt, "CF").and_then(|o| as_dict(arena, &o)) else {
+    let Some(cf) = access::dict_at(arena, encrypt, "CF") else {
         return Cipher::Rc4;
     };
-    let name = name_of(arena, encrypt, "StmF").unwrap_or_else(|| "Identity".to_string());
-    let Some(filter) = cf.get(&arena.name(&name)).and_then(|o| as_dict(arena, o)) else {
+    let name = access::name_at(arena, encrypt, "StmF").unwrap_or_else(|| "Identity".to_string());
+    let Some(filter) = access::dict_at(arena, &cf, &name) else {
         return Cipher::Rc4;
     };
     match filter.get(&arena.name("CFM")).and_then(|o| match o {
@@ -504,28 +502,6 @@ fn crypt_filter_method(arena: &PdfArena, encrypt: &Dict) -> Cipher {
     }) {
         Some(m) if m == "AESV2" || m == "AESV3" => Cipher::Aes,
         Some(_) | None => Cipher::Rc4,
-    }
-}
-
-fn entry_in(arena: &PdfArena, dict: &Dict, key: &str) -> Option<Object> {
-    dict.get(&arena.name(key)).cloned()
-}
-
-fn as_dict(arena: &PdfArena, object: &Object) -> Option<Dict> {
-    match object {
-        Object::Dictionary(h) => arena.get_dict(*h),
-        Object::Reference(h) => match arena.get_object(*h)? {
-            Object::Dictionary(d) => arena.get_dict(d),
-            _ => None,
-        },
-        _ => None,
-    }
-}
-
-fn name_of(arena: &PdfArena, dict: &Dict, key: &str) -> Option<String> {
-    match dict.get(&arena.name(key))? {
-        Object::Name(h) => arena.get_name_str(*h),
-        _ => None,
     }
 }
 
@@ -638,34 +614,6 @@ fn remove_encrypt(arena: &PdfArena, trailer: DictHandle) {
 /// One entry of a dictionary held in the arena.
 fn entry(arena: &PdfArena, dict: DictHandle, key: &str) -> Option<Object> {
     arena.get_dict(dict)?.get(&arena.name(key)).cloned()
-}
-
-/// An integer entry, following one level of indirection.
-fn integer(arena: &PdfArena, dict: &Dict, key: &str) -> Option<i64> {
-    match dict.get(&arena.name(key))? {
-        Object::Integer(v) => Some(*v),
-        Object::Reference(h) => match arena.get_object(*h)? {
-            Object::Integer(v) => Some(v),
-            _ => None,
-        },
-        _ => None,
-    }
-}
-
-/// A string entry, in either of the two string syntaxes.
-fn string(arena: &PdfArena, dict: &Dict, key: &str) -> Option<Vec<u8>> {
-    match dict.get(&arena.name(key))? {
-        Object::String(b) | Object::Hex(b) => Some(b.to_vec()),
-        _ => None,
-    }
-}
-
-/// A boolean entry.
-fn boolean(arena: &PdfArena, dict: &Dict, key: &str) -> Option<bool> {
-    match dict.get(&arena.name(key))? {
-        Object::Boolean(v) => Some(*v),
-        _ => None,
-    }
 }
 
 #[cfg(test)]
