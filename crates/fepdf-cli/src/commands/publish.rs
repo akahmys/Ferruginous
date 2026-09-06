@@ -182,6 +182,6 @@ pub fn handle_verify_signature(input: PathBuf, ingest: IngestArgs) -> Result<()>
     println!("\n  Not checked: whether the certificate is trusted, was valid when it");
     println!("  signed, or has since been revoked.");
 
-    render_decisions_text(&report.decisions);
+    render_decisions_text(&report.decisions, "reading this document");
     Ok(())
 }

@@ -271,7 +271,14 @@ impl FileStructure {
         let (revisions, mut merged, superseded) = walk_sections(bytes, header_offset);
 
         // The document as the reader actually assembles it, so the decisions reported
-        // are the ones a caller would get from `Document::open` and not a re-derivation.
+        // are the raw read's own and not a re-derivation of them.
+        //
+        // **They are not `Document::open`'s.** That runs refinement too, and refinement
+        // takes decisions of its own — reconciling `/Info` against the metadata stream
+        // under 14.3.3, among others — which a layout survey has no reason to reach.
+        // Measured on the corpus: the two differ on 41 of 524 files. This comment used to say
+        // the logs were the same, which is why the wording each report prints now names
+        // what it read.
         let raw = reader::load_document(bytes)?;
 
         // The reader falls back to scanning when the cross-reference yields nothing

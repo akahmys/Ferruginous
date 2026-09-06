@@ -6,7 +6,7 @@ pub fn render_interactive_text(r: &fepdf::InteractiveReport, input: &std::path::
         println!(
             "\n  nothing interactive: no annotations, fields, outline, actions or destinations"
         );
-        render_decisions_text(&r.decisions);
+        render_decisions_text(&r.decisions, "this document's interactive features");
         return;
     }
 
@@ -23,7 +23,7 @@ pub fn render_interactive_text(r: &fepdf::InteractiveReport, input: &std::path::
         println!("  {kind:<18} {n:>7}");
     }
 
-    render_decisions_text(&r.decisions);
+    render_decisions_text(&r.decisions, "this document's interactive features");
 }
 
 pub fn render_interactive_annotations(r: &fepdf::InteractiveReport) {
@@ -267,5 +267,5 @@ pub fn render_interactive_markdown(r: &fepdf::InteractiveReport, input: &std::pa
             println!("| `{kind}` | {n} |");
         }
     }
-    render_decisions_markdown(&r.decisions);
+    render_decisions_markdown(&r.decisions, "this document's interactive features");
 }

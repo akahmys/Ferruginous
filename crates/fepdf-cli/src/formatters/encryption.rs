@@ -20,7 +20,7 @@ pub fn render_encryption_text(r: &fepdf::EncryptionReport, input: &std::path::Pa
         } else {
             println!("\n  no /Encrypt — the document is not protected");
         }
-        render_decisions_text(&r.decisions);
+        render_decisions_text(&r.decisions, "the encryption dictionary");
         return;
     }
 
@@ -59,7 +59,7 @@ pub fn render_encryption_text(r: &fepdf::EncryptionReport, input: &std::path::Pa
     println!("  {}", conformance_label(r.conformance));
     println!("  {}", r.conformance_note);
 
-    render_decisions_text(&r.decisions);
+    render_decisions_text(&r.decisions, "the encryption dictionary");
 }
 
 pub fn render_encryption_permissions(r: &fepdf::EncryptionReport) {
@@ -80,7 +80,7 @@ pub fn render_encryption_markdown(r: &fepdf::EncryptionReport, input: &std::path
     println!("# Encryption: {}", input.display());
     if !r.encrypted {
         println!("\nNo `/Encrypt` — the document is not protected.");
-        render_decisions_markdown(&r.decisions);
+        render_decisions_markdown(&r.decisions, "the encryption dictionary");
         return;
     }
     println!("\n| Property | Value |");
@@ -101,7 +101,7 @@ pub fn render_encryption_markdown(r: &fepdf::EncryptionReport, input: &std::path
             println!("| {} | {} | {} |", p.bit, if p.granted { "yes" } else { "no" }, p.meaning);
         }
     }
-    render_decisions_markdown(&r.decisions);
+    render_decisions_markdown(&r.decisions, "the encryption dictionary");
 }
 
 /// Reports an encrypted payload, when the file is an unencrypted wrapper (7.6.7).

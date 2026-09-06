@@ -164,7 +164,7 @@ pub fn render_summary_text(
 
     // Every text report carries the log, not only the audit: a caller must be able to
     // tell "this loaded" from "this was conforming" whichever command they reached for.
-    render_decisions_text(&summary.decisions);
+    render_decisions_text(&summary.decisions, "reading this document");
 
     if audit {
         render_audit_text(summary);
@@ -185,7 +185,7 @@ pub fn render_summary_markdown(
     println!("# Document Summary: {}", input.file_name().unwrap_or_default().display());
     render_general_info(summary);
     render_font_audit(summary);
-    render_decisions_markdown(&summary.decisions);
+    render_decisions_markdown(&summary.decisions, "reading this document");
 
     if audit {
         render_compliance_markdown(summary)?;

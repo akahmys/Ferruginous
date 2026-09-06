@@ -343,4 +343,71 @@ mod carried_everywhere {
         assert!(CatalogReport::survey(&bytes).expect("catalog").decisions.is_empty());
         assert!(InteractiveReport::survey(&bytes).expect("interactive").decisions.is_empty());
     }
+
+    /// A file whose `/Info /ModDate` and XMP `xmp:ModifyDate` disagree (14.3.3).
+    fn metadata_disagrees() -> Vec<u8> {
+        let xmp = "<?xpacket begin=\"\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\
+            <x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF \
+            xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\
+            <rdf:Description rdf:about=\"\" xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\">\
+            <xmp:ModifyDate>2024-11-08T09:08:18+09:00</xmp:ModifyDate>\
+            </rdf:Description></rdf:RDF></x:xmpmeta><?xpacket end=\"w\"?>";
+        let body = format!(
+            "%PDF-2.0\n\
+             1 0 obj\n<< /Type /Catalog /Pages 2 0 R /Metadata 4 0 R >>\nendobj\n\
+             2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+             3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj\n\
+             4 0 obj\n<< /Type /Metadata /Subtype /XML /Length {} >>\nstream\n{xmp}\nendstream\nendobj\n\
+             5 0 obj\n<< /ModDate (D:20241114200008+09'00') >>\nendobj\n",
+            xmp.len()
+        );
+        let offsets: Vec<usize> =
+            (1..=5).map(|n| body.find(&format!("\n{n} 0 obj")).map_or(0, |p| p + 1)).collect();
+        let mut out = body;
+        let xref_at = out.len();
+        out.push_str("xref\n0 6\n0000000000 65535 f \n");
+        for off in &offsets {
+            out.push_str(&format!("{off:010} 00000 n \n"));
+        }
+        out.push_str(&format!(
+            "trailer\n<< /Size 6 /Root 1 0 R /Info 5 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+        ));
+        out.into_bytes()
+    }
+
+    /// `FileStructure::survey` reports the raw read's decisions, and refinement's are
+    /// not among them.
+    ///
+    /// **`survey`'s doc comment used to claim otherwise** — "the decisions reported are
+    /// the ones a caller would get from `Document::open`" — and measurement said no:
+    /// `fepdf inspect info samples/fy05.pdf` showed one 14.3.3 ambiguity where
+    /// `inspect structure` on the same file printed "none — the file was read without
+    /// departing from the standard". Both blocks carry the same heading, so a reader
+    /// comparing them was told two different things about one file.
+    ///
+    /// The two scopes are both legitimate: `survey` reads layout and has no reason to
+    /// reconcile metadata. What was wrong was calling the narrower one by the wider
+    /// name. This test pins the difference so the wording cannot drift back.
+    #[test]
+    fn a_layout_survey_does_not_carry_refinements_decisions() {
+        let bytes = metadata_disagrees();
+
+        let opened = crate::Document::open(
+            bytes::Bytes::from(bytes.clone()),
+            &crate::ingest::IngestionOptions::default(),
+        )
+        .expect("opens");
+        assert!(
+            opened.decisions.entries().iter().any(|d| d.clause == "14.3.3"),
+            "opening the document should reconcile the two dates: {:?}",
+            opened.decisions.entries()
+        );
+
+        let structure = FileStructure::survey(&bytes).expect("structure");
+        assert!(
+            !structure.decisions.iter().any(|d| d.clause == "14.3.3"),
+            "a layout survey does not refine metadata: {:?}",
+            structure.decisions
+        );
+    }
 }

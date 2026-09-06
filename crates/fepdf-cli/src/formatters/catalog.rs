@@ -82,7 +82,7 @@ pub fn render_catalog_text(r: &fepdf::CatalogReport, input: &std::path::Path, al
         println!("\n  {} Table 29 keys are absent; --all lists them", r.absent.len());
     }
 
-    render_decisions_text(&r.decisions);
+    render_decisions_text(&r.decisions, "the catalogue");
 }
 
 pub fn render_catalog_markdown(r: &fepdf::CatalogReport, input: &std::path::Path) {
@@ -103,5 +103,5 @@ pub fn render_catalog_markdown(r: &fepdf::CatalogReport, input: &std::path::Path
         "\nModelled {modelled}, declared {declared}, type only {type_only}, untyped {preserved}."
     );
     println!("\nAbsent Table 29 keys: {}.", r.absent.len());
-    render_decisions_markdown(&r.decisions);
+    render_decisions_markdown(&r.decisions, "the catalogue");
 }

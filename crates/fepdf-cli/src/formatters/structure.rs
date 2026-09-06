@@ -89,7 +89,7 @@ pub fn render_structure_objects(s: &fepdf::FileStructure) {
 }
 
 pub fn render_structure_decisions(s: &fepdf::FileStructure) {
-    render_decisions_text(&s.decisions);
+    render_decisions_text(&s.decisions, "the file's layout");
 }
 
 pub fn render_structure_markdown(s: &fepdf::FileStructure, input: &std::path::Path) {

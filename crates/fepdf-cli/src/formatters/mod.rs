@@ -13,10 +13,18 @@ use fepdf::PdfDocument;
 /// `info`, `audit`, `catalog`, `interactive` and `structure`. Before this, only the
 /// audit showed them, and it showed them laundered: every decision reached the summary
 /// as a compliance issue at `Warning`, whatever severity the engine had assigned.
-pub fn render_decisions_text(decisions: &[fepdf::Decision]) {
+///
+/// `scope` names **what was read**, and it is not decoration. These reports do not all
+/// read the same amount of the file: `FileStructure::survey` stops at the layout, while
+/// `Document::open` goes on to refine, and refinement takes decisions of its own (14.3.3
+/// among them). Printing "the file was read without departing from the standard" under
+/// the narrower one made `inspect structure` contradict `inspect info` about the same
+/// file — measured on the corpus, they differ on 41 of 524 — with both blocks carrying
+/// this identical heading. The empty case now says which reading found nothing.
+pub fn render_decisions_text(decisions: &[fepdf::Decision], scope: &str) {
     println!("\n--- [ DECISIONS TAKEN READING (5.3) ] ---");
     if decisions.is_empty() {
-        println!("  none — the file was read without departing from the standard");
+        println!("  none — nothing in {scope} departed from the standard");
         return;
     }
     let count = |s: fepdf::Severity| decisions.iter().filter(|d| d.severity == s).count();
@@ -31,10 +39,11 @@ pub fn render_decisions_text(decisions: &[fepdf::Decision]) {
     }
 }
 
-pub fn render_decisions_markdown(decisions: &[fepdf::Decision]) {
+/// [`render_decisions_text`] as a table, with the same `scope`.
+pub fn render_decisions_markdown(decisions: &[fepdf::Decision], scope: &str) {
     println!("\n## Decisions taken reading\n");
     if decisions.is_empty() {
-        println!("None — the file was read without departing from the standard.");
+        println!("None — nothing in {scope} departed from the standard.");
         return;
     }
     println!("| Severity | Clause | Found | Action |");
