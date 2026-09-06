@@ -58,6 +58,27 @@ pub struct OutlineNode {
     pub children: Vec<OutlineNode>,
 }
 
+/// Releases a nested outline with a worklist, not with the stack.
+///
+/// **The derived `Drop` aborted the process past about 5,000 levels.** Releasing a node
+/// released its `children`, which released theirs, one stack frame per level all the way
+/// down, and [ADR-0061](../../../../docs/adr/0061-four-walks-bounded-and-two-that-were-not-what-the-sweep-said.md)
+/// measured the abort between 5,000 and 10,000 while the walk that *builds* one is
+/// bounded well above it. No bound on any walk moves this: it is the type's own
+/// destructor, and every caller that builds an outline in Rust has it.
+///
+/// Each node's children are moved out before that node dies, so the node the compiler
+/// drops always has an empty `Vec` and recurses nowhere. This runs on every `OutlineNode`,
+/// including the shallow ones, and costs one `Vec` per level of actual nesting.
+impl Drop for OutlineNode {
+    fn drop(&mut self) {
+        let mut pending = std::mem::take(&mut self.children);
+        while let Some(mut node) = pending.pop() {
+            pending.append(&mut node.children);
+        }
+    }
+}
+
 /// Full Outline Tree for document navigation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct OutlineTree {
