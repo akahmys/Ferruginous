@@ -8,7 +8,7 @@ pub mod struct_elem;
 pub mod vocabulary;
 
 use bytes::Bytes;
-use fepdf::{Operation, PdfDocument};
+use fepdf::{Operation, PageSelection, PdfDocument};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use std::fs;
@@ -48,4 +48,56 @@ pub fn apply_operation_impl(args: ApplyOperationArgs) -> Result<String, String> 
         "message": "Operation applied successfully"
     })
     .to_string())
+}
+
+/// Parses the page-selection string every page tool on this surface accepts.
+///
+/// The accepted forms are the ones the schemas document, **counting from 1**: `all`,
+/// a single page (`2`), or an inclusive range (`1-3`). `None` means `all`, for the tools
+/// whose field is optional. Anything else is an error naming what was not understood.
+///
+/// **Refusing is the whole point.** Three copies of this used to live in `page.rs`,
+/// `vocabulary.rs` and `decoration.rs`, all three ending `_ => PageSelection::All`, so
+/// every string they could not read selected the entire document:
+///
+/// | input | was | now |
+/// | --- | --- | --- |
+/// | `"foo"`, `""` | every page | refused |
+/// | `"2,3"` — the first thing a caller reaches for | every page | refused |
+/// | `"0"`, `"-1"` | page 1 | refused, the field counts from 1 |
+/// | `"3-"`, `"5-x"` | page 3 in one copy, nothing in the other | refused |
+///
+/// On `remove_pages` the first row deleted the file's every page and reported SUCCESS.
+/// A selection nobody can parse is not a selection, and guessing `All` for it is the
+/// most destructive guess available (RR-15 Rule 13).
+///
+/// A fourth site, `apply_bates_numbering`, did not parse its `pages` field at all — it
+/// opened `let pages = PageSelection::All;` and never read the argument.
+pub fn parse_selection(text: Option<&str>) -> Result<PageSelection, String> {
+    let Some(raw) = text.map(str::trim) else { return Ok(PageSelection::All) };
+    if raw.eq_ignore_ascii_case("all") {
+        return Ok(PageSelection::All);
+    }
+    if let Some((first, last)) = raw.split_once('-') {
+        let first = one_based(first)?;
+        let last = one_based(last)?;
+        if last < first {
+            return Err(format!("page range \"{raw}\" ends before it begins"));
+        }
+        return Ok(PageSelection::Indices(((first - 1)..last).collect()));
+    }
+    Ok(PageSelection::Single(one_based(raw)? - 1))
+}
+
+/// One page number as the schemas define it: an integer, counting from 1.
+fn one_based(text: &str) -> Result<usize, String> {
+    match text.trim().parse::<usize>() {
+        Ok(0) => Err("page numbers count from 1, so 0 is not a page".to_string()),
+        Ok(n) => Ok(n),
+        Err(_) => Err(format!(
+            "\"{}\" is not a page selection: use \"all\", a page number such as \"2\", \
+             or a range such as \"1-3\"",
+            text.trim()
+        )),
+    }
 }

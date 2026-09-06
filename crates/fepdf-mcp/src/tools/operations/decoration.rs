@@ -3,7 +3,7 @@
 use super::page::execute_single_op;
 use fepdf::{
     AnnotationKind, AnnotationSpec, DecorationPosition, FormFieldSpec, FormValue, MeasurementScale,
-    Operation, PageSelection,
+    Operation,
 };
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -106,18 +106,7 @@ fn parse_pos(pos: &str) -> DecorationPosition {
 /// Implementation of the add_page_decoration tool.
 pub fn add_page_decoration_impl(args: AddPageDecorationArgs) -> Result<String, String> {
     let position = parse_pos(&args.position);
-    let pages = match args.pages.as_deref() {
-        Some(s) if s.contains('-') => {
-            let (start, end) = s.split_once('-').unwrap_or(("1", "1"));
-            let s_idx: usize = start.parse().unwrap_or(1);
-            let e_idx: usize = end.parse().unwrap_or(1);
-            PageSelection::Indices((s_idx.saturating_sub(1)..=e_idx.saturating_sub(1)).collect())
-        }
-        Some(s) if s.parse::<usize>().is_ok() => {
-            PageSelection::Single(s.parse::<usize>().unwrap_or(1).saturating_sub(1))
-        }
-        _ => PageSelection::All,
-    };
+    let pages = super::parse_selection(args.pages.as_deref())?;
     let op = Operation::AddPageDecoration { pages, text: args.text, position, layer: args.layer };
     execute_single_op(&args.input_path, &args.output_path, op, "Page decoration added")
 }
@@ -125,7 +114,7 @@ pub fn add_page_decoration_impl(args: AddPageDecorationArgs) -> Result<String, S
 /// Implementation of the apply_bates_numbering tool.
 pub fn apply_bates_numbering_impl(args: ApplyBatesNumberingArgs) -> Result<String, String> {
     let position = parse_pos(args.position.as_deref().unwrap_or("bottom_right"));
-    let pages = PageSelection::All;
+    let pages = super::parse_selection(args.pages.as_deref())?;
     let op = Operation::ApplyBatesNumbering {
         pages,
         prefix: args.prefix.unwrap_or_default(),

@@ -21,6 +21,7 @@ use fepdf_mcp::prompts::{prompt_audit_accessibility, prompt_remediate_pdf_ua};
 use fepdf_mcp::resources::{
     read_audit_resource, read_metadata_resource, read_struct_tree_resource,
 };
+use fepdf_mcp::tools::operations::vocabulary::{DuplicatePagesArgs, duplicate_pages_impl};
 use fepdf_mcp::tools::{
     AddAnnotationArgs, AddPageDecorationArgs, ApplyBatesNumberingArgs, AuditArgs, ExtractTextArgs,
     OutlineNodeArg, RedactDocumentArgs, RedactionTarget, RemovePagesArgs, ReorderPagesArgs,
@@ -348,4 +349,156 @@ fn the_prompts_name_their_subject() {
     let path = written("prompts", &pages(1));
     assert!(prompt_audit_accessibility(&path).contains("PDF/UA-2"));
     assert!(prompt_remediate_pdf_ua(&path, "output.pdf").contains("remediation"));
+}
+
+// --- page selections ------------------------------------------------------------------
+
+/// How many pages a document on disk has, read back through the extraction report.
+fn page_count(path: &str) -> usize {
+    let json = extract_text_impl(ExtractTextArgs { path: path.to_string(), page_range: None })
+        .expect("the document reads back");
+    let marker = "\"total_pages\":";
+    let at = json.find(marker).expect("the report states a page count") + marker.len();
+    json[at..]
+        .trim_start()
+        .split(|c: char| !c.is_ascii_digit())
+        .next()
+        .unwrap_or("0")
+        .parse()
+        .expect("the page count is a number")
+}
+
+/// A selection string nobody can parse is refused, and does not mean "every page".
+///
+/// **`remove_pages(pages: "foo")` used to remove the whole document.** Both selection
+/// parsers ended their match with `_ => PageSelection::All`, so anything unrecognised —
+/// a typo, an empty string, or `"2,3"`, which is the first thing a caller reaches for —
+/// selected every page. On `remove_pages` that is the entire file, silently, reported as
+/// SUCCESS.
+#[test]
+fn an_unparsable_selection_is_refused_rather_than_meaning_all() {
+    for probe in ["foo", "", "2,3", "0", "-1"] {
+        let path = written("sel_bad", &pages(3));
+        let dest = out("sel_bad");
+        let result = remove_pages_impl(RemovePagesArgs {
+            input_path: path,
+            output_path: dest.clone(),
+            pages: probe.to_string(),
+        });
+        assert!(result.is_err(), "{probe:?} should be refused, not read as a selection");
+        assert!(
+            !std::path::Path::new(&dest).exists(),
+            "{probe:?} should not have written an output document"
+        );
+    }
+}
+
+/// The two page tools read one selection string the same way.
+///
+/// `duplicate_pages` and `remove_pages` had a `parse_selection` each, differing in one
+/// `unwrap_or`: for `"3-"` the first yielded page 3 and the second yielded nothing, so
+/// the same string named a page to one tool and no page to the other.
+#[test]
+fn both_page_tools_read_one_selection_the_same_way() {
+    for probe in ["3-", "5-x", "1-"] {
+        let dup_path = written("sel_dup", &pages(3));
+        let dup_dest = out("sel_dup");
+        let dup = duplicate_pages_impl(DuplicatePagesArgs {
+            input_path: dup_path,
+            output_path: dup_dest,
+            pages: probe.to_string(),
+        });
+
+        let rm_path = written("sel_rm", &pages(3));
+        let rm_dest = out("sel_rm");
+        let rm = remove_pages_impl(RemovePagesArgs {
+            input_path: rm_path,
+            output_path: rm_dest,
+            pages: probe.to_string(),
+        });
+
+        assert_eq!(
+            dup.is_err(),
+            rm.is_err(),
+            "{probe:?}: duplicate_pages and remove_pages disagree about whether it parses"
+        );
+    }
+}
+
+/// The forms the schema documents still work, and name the pages it says they name.
+#[test]
+fn the_documented_selection_forms_still_name_their_pages() {
+    let path = written("sel_ok", &pages(3));
+    let dest = out("sel_ok");
+    remove_pages_impl(RemovePagesArgs {
+        input_path: path.clone(),
+        output_path: dest.clone(),
+        pages: "1-2".into(),
+    })
+    .expect("a documented range parses");
+    assert_eq!(page_count(&dest), 1, "1-2 removed two of three pages");
+    assert!(text_of(&dest, 0).contains("P2"), "and the one left is the third");
+
+    let single = out("sel_ok_single");
+    remove_pages_impl(RemovePagesArgs {
+        input_path: path.clone(),
+        output_path: single.clone(),
+        pages: "2".into(),
+    })
+    .expect("a documented single page parses");
+    assert_eq!(page_count(&single), 2, "2 removed one of three pages");
+
+    let all = out("sel_ok_all");
+    remove_pages_impl(RemovePagesArgs {
+        input_path: path,
+        output_path: all.clone(),
+        pages: "all".into(),
+    })
+    .expect("\"all\" parses");
+    assert_eq!(page_count(&all), 0, "all removed every page, because it was asked to");
+}
+
+/// `apply_bates_numbering`'s `pages` field is the selection its schema says it is.
+///
+/// **It used to be read by nothing.** `apply_bates_numbering_impl` opened with
+/// `let pages = PageSelection::All;` and never looked at `args.pages`, while the schema
+/// told every caller "Selection of pages, **counting from 1**: \"all\", \"1-5\".
+/// Default: \"all\"." Asking for a range stamped the whole document.
+#[test]
+fn bates_numbering_stamps_the_pages_it_was_given() {
+    let path = written("bates_sel", &pages(3));
+    let dest = out("bates_sel");
+    apply_bates_numbering_impl(ApplyBatesNumberingArgs {
+        input_path: path,
+        output_path: dest.clone(),
+        pages: Some("1".into()),
+        prefix: Some("B-".into()),
+        start_number: Some(1),
+        digits: Some(3),
+        position: Some("bottom_right".into()),
+    })
+    .expect("the tool runs");
+
+    assert!(text_of(&dest, 0).contains("B-"), "page 1 was asked for and is stamped");
+    assert!(!text_of(&dest, 1).contains("B-"), "page 2 was not asked for");
+    assert!(!text_of(&dest, 2).contains("B-"), "nor page 3");
+}
+
+/// Page decoration reads the same selection as every other page tool.
+///
+/// It had a third inline copy of the parser, ending in the same `_ => PageSelection::All`.
+#[test]
+fn page_decoration_refuses_an_unparsable_selection() {
+    let path = written("deco_sel", &pages(3));
+    let dest = out("deco_sel");
+    let result = add_page_decoration_impl(AddPageDecorationArgs {
+        input_path: path,
+        output_path: dest.clone(),
+        pages: Some("2,3".into()),
+        text: "X".into(),
+        position: "bottom_right".into(),
+        layer: None,
+    });
+    assert!(result.is_err(), "\"2,3\" should be refused, not read as every page");
+    assert!(!std::path::Path::new(&dest).exists(), "and should write no document");
 }

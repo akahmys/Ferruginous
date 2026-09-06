@@ -1,7 +1,7 @@
 //! Page-level mutation tools (rotate, reorder, remove).
 
 use bytes::Bytes;
-use fepdf::{Operation, PageSelection, PdfDocument, Quarter, RotateMode};
+use fepdf::{Operation, PdfDocument, Quarter, RotateMode};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -66,25 +66,6 @@ pub struct PageOperationResult {
     pub details: String,
 }
 
-fn parse_selection(s: Option<&str>) -> PageSelection {
-    match s.map(|v| v.trim().to_lowercase()).as_deref() {
-        Some("all") | None => PageSelection::All,
-        Some(other) => {
-            if let Some((start, end)) = other.split_once('-') {
-                let start_idx: usize = start.trim().parse().unwrap_or(1);
-                let end_idx: usize = end.trim().parse().unwrap_or(1);
-                let indices: Vec<usize> =
-                    (start_idx.saturating_sub(1)..=end_idx.saturating_sub(1)).collect();
-                PageSelection::Indices(indices)
-            } else if let Ok(idx) = other.parse::<usize>() {
-                PageSelection::Single(idx.saturating_sub(1))
-            } else {
-                PageSelection::All
-            }
-        }
-    }
-}
-
 fn int_to_quarter(angle: i32) -> Result<Quarter, String> {
     match angle.rem_euclid(360) {
         0 => Ok(Quarter::Q0),
@@ -100,7 +81,7 @@ pub fn rotate_pages_impl(args: RotatePagesArgs) -> Result<String, String> {
     let quarter = int_to_quarter(args.angle)?;
     let relative = args.relative.unwrap_or(true);
     let mode = if relative { RotateMode::Relative(quarter) } else { RotateMode::Absolute(quarter) };
-    let pages = parse_selection(args.selection.as_deref());
+    let pages = super::parse_selection(args.selection.as_deref())?;
 
     let op = Operation::Rotate { pages, mode };
     execute_single_op(&args.input_path, &args.output_path, op, "Pages rotated successfully")
@@ -119,7 +100,7 @@ pub fn reorder_pages_impl(args: ReorderPagesArgs) -> Result<String, String> {
 
 /// Implementation of the remove_pages tool.
 pub fn remove_pages_impl(args: RemovePagesArgs) -> Result<String, String> {
-    let pages = parse_selection(Some(&args.pages));
+    let pages = super::parse_selection(Some(&args.pages))?;
     let op = Operation::RemovePages(pages);
     execute_single_op(&args.input_path, &args.output_path, op, "Pages removed successfully")
 }

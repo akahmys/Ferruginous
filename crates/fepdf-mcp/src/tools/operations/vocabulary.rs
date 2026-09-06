@@ -17,7 +17,7 @@
 //! these do too, and read them on the caller's behalf.
 
 use super::page::execute_single_op;
-use fepdf::{Operation, PageSelection, PdfStandard};
+use fepdf::{Operation, PdfStandard};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use std::fs;
@@ -90,24 +90,6 @@ pub struct UpgradeArgs {
     pub standard: String,
 }
 
-/// Parses a page selection in the form the other page tools accept.
-fn parse_selection(text: &str) -> PageSelection {
-    match text.trim().to_lowercase().as_str() {
-        "all" => PageSelection::All,
-        other => {
-            if let Some((start, end)) = other.split_once('-') {
-                let first: usize = start.trim().parse().unwrap_or(1);
-                let last: usize = end.trim().parse().unwrap_or(first);
-                PageSelection::Indices((first.saturating_sub(1)..=last.saturating_sub(1)).collect())
-            } else if let Ok(one) = other.trim().parse::<usize>() {
-                PageSelection::Single(one.saturating_sub(1))
-            } else {
-                PageSelection::All
-            }
-        }
-    }
-}
-
 /// Implementation of the reorder_pages_batch tool.
 pub fn reorder_batch_impl(args: ReorderBatchArgs) -> Result<String, String> {
     let details = format!("Moved {} pages before index {}", args.sources.len(), args.target);
@@ -117,7 +99,7 @@ pub fn reorder_batch_impl(args: ReorderBatchArgs) -> Result<String, String> {
 
 /// Implementation of the duplicate_pages tool.
 pub fn duplicate_pages_impl(args: DuplicatePagesArgs) -> Result<String, String> {
-    let op = Operation::DuplicatePages(parse_selection(&args.pages));
+    let op = Operation::DuplicatePages(super::parse_selection(Some(&args.pages))?);
     execute_single_op(&args.input_path, &args.output_path, op, "Pages duplicated successfully")
 }
 
