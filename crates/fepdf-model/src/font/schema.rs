@@ -28,6 +28,18 @@ pub struct PdfFontDescriptor {
     pub cap_height: Option<f64>,
     #[pdf_key("StemV")]
     /// `/StemV`: dominant vertical stem width.
+    ///
+    /// **`Option` although Arlington makes it `Required = TRUE`** for
+    /// `FontDescriptorType1`, `FontDescriptorTrueType`, `FontDescriptorCIDType0` and
+    /// `FontDescriptorCIDType2` — four of the five descriptor kinds. The fifth,
+    /// `FontDescriptorType3`, has it `FALSE`, along with `/FontBBox`, `/Ascent` and
+    /// `/Descent`; one type here covers all five, so it takes the loosest of them.
+    ///
+    /// Measured before choosing: requiring it changes the corpus not at all — 232 of 524
+    /// files report 9.8 either way, so every descriptor that parses already carries a
+    /// `/StemV`. What requiring it *would* do is stop reporting 9.8 for a tagged Type 3
+    /// document, the one case the standard says may legitimately omit it. A looseness
+    /// that costs nothing observed and avoids one wrong refusal.
     pub stem_v: Option<f64>,
     #[pdf_key("FontFile")]
     /// `/FontFile`: an embedded Type 1 program.
@@ -122,6 +134,47 @@ pub struct PdfType0Font {
     #[pdf_key("DescendantFonts")]
     /// `/DescendantFonts`: the single CIDFont this Type 0 font wraps.
     pub descendant_fonts: Handle<Vec<Object>>, // CIDFont
+}
+
+/// Type 3 Font Dictionary (Clause 9.6.5)
+///
+/// The one font kind with no font program: `/CharProcs` maps a glyph name to a content
+/// stream that draws it, and `/FontMatrix` maps that stream's space to text space. So it
+/// carries **no `/BaseFont`** — Arlington's `FontType3` has no such key — which is why
+/// `PdfFont` (9.2), whose gate is `/BaseFont`, correctly never matched one and why a
+/// document of nothing but Type 3 fonts reported no font clause at all.
+///
+/// Every field here is `Required = TRUE` in Arlington. `/Encoding` is a dictionary and
+/// not a name: with the glyphs named by `/CharProcs`, an encoding is the only route from
+/// a character code to one of them.
+#[derive(Debug, Clone, FromPdfObject)]
+#[pdf_dict(clause = "9.6.5")]
+pub struct PdfType3Font {
+    #[pdf_key("FontBBox")]
+    /// `/FontBBox`: the glyph bounding box, in glyph space.
+    pub font_bbox: crate::graphics::Rect,
+    #[pdf_key("FontMatrix")]
+    /// `/FontMatrix`: glyph space to text space.
+    pub font_matrix: Handle<Vec<Object>>,
+    #[pdf_key("CharProcs")]
+    /// `/CharProcs`: glyph name to the content stream that draws it.
+    ///
+    /// `Object` and not `Handle<Object>`: both are written directly in real files as
+    /// often as they are written as references, and a type that accepts only the
+    /// reference form would report the clause unmet for half of them.
+    pub char_procs: Object,
+    #[pdf_key("Encoding")]
+    /// `/Encoding`: the dictionary naming which `/CharProcs` entry each code reaches.
+    pub encoding: Object,
+    #[pdf_key("FirstChar")]
+    /// `/FirstChar`: first code covered by `widths`.
+    pub first_char: i64,
+    #[pdf_key("LastChar")]
+    /// `/LastChar`: last code covered by `widths`.
+    pub last_char: i64,
+    #[pdf_key("Widths")]
+    /// `/Widths`: advance widths, in glyph space, for `first_char..=last_char`.
+    pub widths: Handle<Vec<Object>>,
 }
 
 /// OpenType Font Dictionary (Clause 9.6.4)

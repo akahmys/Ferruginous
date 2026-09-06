@@ -2,7 +2,7 @@ use crate::document::PdfCatalog;
 use crate::document::page::{PdfAnnotation, PdfPageDict};
 use crate::font::schema::{
     PdfCIDFont, PdfFont, PdfFontDescriptor, PdfOpenTypeFont, PdfTrueTypeFont, PdfType0Font,
-    PdfType1Font,
+    PdfType1Font, PdfType3Font,
 };
 use crate::graphics::schema::PdfExtGState;
 use crate::metadata::PdfInfo;
@@ -144,6 +144,9 @@ impl<'a> ComplianceAuditor<'a> {
             "TrueType" => PdfTrueTypeFont::from_pdf_object(obj.clone(), arena)
                 .is_ok()
                 .then(PdfTrueTypeFont::iso_clause),
+            "Type3" => PdfType3Font::from_pdf_object(obj.clone(), arena)
+                .is_ok()
+                .then(PdfType3Font::iso_clause),
             "Type0" => PdfType0Font::from_pdf_object(obj.clone(), arena)
                 .is_ok()
                 .then(PdfType0Font::iso_clause),
