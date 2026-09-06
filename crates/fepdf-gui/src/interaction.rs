@@ -190,20 +190,6 @@ impl SelectionManager {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn handle_interaction(
-        &mut self,
-        ui: &mut egui::Ui,
-        page_index: usize,
-        page_rect: egui::Rect,
-        page_unscaled_h: f32,
-        spans: &[TextSpan],
-        zoom: f32,
-    ) {
-        let response = ui.allocate_rect(page_rect, egui::Sense::drag());
-        self.handle_drag(ui, &response, page_index, page_rect, page_unscaled_h, spans, zoom);
-    }
-
     fn recalculate_selection(
         &mut self,
         page_index: usize,

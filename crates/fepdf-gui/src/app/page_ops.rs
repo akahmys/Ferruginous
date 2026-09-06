@@ -75,15 +75,6 @@ impl FepdfApp {
         ctx.request_repaint();
     }
 
-    #[allow(dead_code)]
-    pub fn reorder_page(&mut self, from: usize, to: usize) {
-        if from >= self.total_pages || to >= self.total_pages || from == to {
-            return;
-        }
-        let target_pos = if to > from { to + 1 } else { to };
-        self.reorder_pages_batch(&[from], target_pos);
-    }
-
     pub fn reorder_pages_batch(&mut self, source_indices: &[usize], target_insert_pos: usize) {
         if source_indices.is_empty() || target_insert_pos > self.total_pages {
             return;
@@ -159,7 +150,6 @@ impl FepdfApp {
         let _ = self.tx_worker.send(WorkerRequest::DuplicatePage { index });
     }
 
-    #[allow(dead_code)]
     pub fn remove_selected_pages(&mut self) {
         if self.selected_pages.is_empty() || self.total_pages <= 1 {
             return;
@@ -219,7 +209,6 @@ impl FepdfApp {
         let _ = self.tx_worker.send(WorkerRequest::RotatePages { indices, delta });
     }
 
-    #[allow(dead_code)]
     pub fn rotate_selected_pages(&mut self, delta: fepdf::Quarter) {
         let targets = if !self.selected_pages.is_empty() {
             self.selected_pages.iter().copied().collect()
@@ -231,7 +220,6 @@ impl FepdfApp {
         self.rotate_pages(targets, delta);
     }
 
-    #[allow(dead_code)]
     pub fn rotate_page_action(&mut self, clicked_idx: usize, delta: fepdf::Quarter) {
         let targets = if self.selected_pages.contains(&clicked_idx) {
             self.selected_pages.iter().copied().collect()

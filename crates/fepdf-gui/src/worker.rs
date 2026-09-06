@@ -7,7 +7,6 @@ use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender};
 use vello::Scene;
 
-#[allow(dead_code)]
 pub enum WorkerRequest {
     Open {
         data: Bytes,
@@ -50,21 +49,9 @@ pub enum WorkerRequest {
     DuplicatePage {
         index: usize,
     },
-    InsertDocument {
-        data: Bytes,
-        at_index: usize,
-    },
-    ReplaceDocument {
-        data: Bytes,
-        at_index: usize,
-        count: usize,
-    },
     RotatePages {
         indices: Vec<usize>,
         delta: fepdf::Quarter,
-    },
-    ExtractPages {
-        indices: Vec<usize>,
     },
 }
 
@@ -243,24 +230,6 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                 }
                 ctx.request_repaint();
             }
-            WorkerRequest::InsertDocument { data, at_index } => {
-                text_cache.clear();
-                spans_cache.clear();
-                if let Some(ref mut doc) = current_doc {
-                    handle_insert_document(doc, data, at_index, &tx);
-                } else {
-                    current_doc = handle_open(data, None, &tx);
-                }
-                ctx.request_repaint();
-            }
-            WorkerRequest::ReplaceDocument { data, at_index, count } => {
-                text_cache.clear();
-                spans_cache.clear();
-                if let Some(ref mut doc) = current_doc {
-                    handle_replace_document(doc, data, at_index, count, &tx);
-                }
-                ctx.request_repaint();
-            }
             WorkerRequest::RotatePages { indices, delta } => {
                 text_cache.clear();
                 spans_cache.clear();
@@ -274,25 +243,6 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                 }
                 ctx.request_repaint();
             }
-            WorkerRequest::ExtractPages { indices } => {
-                if let Some(ref doc) = current_doc
-                    && let Ok(extracted_doc) = doc.extract_pages(indices)
-                {
-                    let mut temp_path = std::env::temp_dir();
-                    let timestamp = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map_or(0, |d| d.as_millis());
-                    temp_path.push(format!("fepdf_extracted_{timestamp}.pdf"));
-
-                    if extracted_doc.save_as_version(&temp_path, "1.7").is_ok()
-                        && let Ok(exe) = std::env::current_exe()
-                        && let Err(e) = std::process::Command::new(exe).arg(&temp_path).spawn()
-                    {
-                        log::warn!("the external viewer would not start: {e}");
-                    }
-                }
-                ctx.request_repaint();
-            }
         }
     }
 }
@@ -302,97 +252,6 @@ fn resolve_struct_tree_root(
     _next_id: &mut usize,
 ) -> Option<crate::sidebar::USTNode> {
     doc.extract_struct_tree()
-}
-
-/// Re-reads everything the UI shows about a document, after its page set changed.
-///
-/// Both handlers below had their own copy of this — forty lines each, identical but for
-/// the error string. Two copies of "what the UI needs to know" is how one of them comes to
-/// answer a question the other does not.
-fn reload_after_page_change(doc: &PdfDocument, tx: &Sender<WorkerResponse>) {
-    let num_pages = doc.page_count().unwrap_or(0);
-    let mut page_sizes = Vec::with_capacity(num_pages);
-    for i in 0..num_pages {
-        page_sizes.push(doc.get_page_size(i).unwrap_or((595.0, 842.0)));
-    }
-
-    let mut next_id = 0;
-    let ust_root = resolve_struct_tree_root(doc, &mut next_id).or_else(|| {
-        Some(crate::sidebar::USTNode {
-            id: 0,
-            tag: "Document".to_string(),
-            title: "PDF Document Catalog (Untagged)".to_string(),
-            alt_text: None,
-            rect: None,
-            page_index: None,
-            handle_index: None,
-            children: Vec::new(),
-        })
-    });
-
-    let version = doc.get_summary().ok().map_or_else(|| "1.7".to_string(), |s| s.version);
-    let _ = tx.send(WorkerResponse::DocumentLoaded(Box::new(LoadedDocument {
-        name: None,
-        num_pages,
-        page_sizes,
-        ust_root,
-        file_size: 0,
-        version,
-        metadata: doc.metadata(),
-        security_method: doc.security_method(),
-        permissions: doc.permissions(),
-        fonts: doc.fonts(),
-        viewer_direction: doc.viewer_direction(),
-        layers: doc.layers().rows,
-        decisions: doc.decisions(),
-    })));
-}
-
-/// Inserts every page of a dropped document at `at_index`.
-///
-/// The source is handed over as bytes and opened inside `apply`. This used to open it
-/// here and call `PdfDocument::insert_pages_from`, which is a mutation outside the
-/// `Operation` vocabulary — Rule D, and one of the eight sites that had left it.
-fn handle_insert_document(
-    doc: &mut PdfDocument,
-    data: Bytes,
-    at_index: usize,
-    tx: &Sender<WorkerResponse>,
-) {
-    if let Err(e) = doc.apply(Operation::InsertFrom { source: data.to_vec(), at: at_index }) {
-        log::error!("Failed to insert pages in worker: {e:?}");
-        let _ = tx.send(WorkerResponse::Error(format!("Failed to insert pages: {e:?}")));
-        return;
-    }
-    reload_after_page_change(doc, tx);
-}
-
-/// Replaces `count` pages at `at_index` with every page of a dropped document.
-///
-/// Two operations, in the order the name says: the removal first, so the insertion lands
-/// where the removed run was.
-fn handle_replace_document(
-    doc: &mut PdfDocument,
-    data: Bytes,
-    at_index: usize,
-    count: usize,
-    tx: &Sender<WorkerResponse>,
-) {
-    let page_count = doc.page_count().unwrap_or(0);
-    let doomed: Vec<usize> = (at_index..at_index + count).filter(|i| *i < page_count).collect();
-    if !doomed.is_empty()
-        && let Err(e) = doc.apply(Operation::RemovePages(PageSelection::Indices(doomed)))
-    {
-        log::error!("Failed to remove pages being replaced: {e:?}");
-        let _ = tx.send(WorkerResponse::Error(format!("Failed to replace pages: {e:?}")));
-        return;
-    }
-    if let Err(e) = doc.apply(Operation::InsertFrom { source: data.to_vec(), at: at_index }) {
-        log::error!("Failed to replace pages in worker: {e:?}");
-        let _ = tx.send(WorkerResponse::Error(format!("Failed to replace pages: {e:?}")));
-        return;
-    }
-    reload_after_page_change(doc, tx);
 }
 
 /// Whether a document with no declared reading direction is a vertically set CJK one.
