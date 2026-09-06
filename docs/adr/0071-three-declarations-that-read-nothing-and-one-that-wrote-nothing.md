@@ -1,6 +1,6 @@
 # ADR-0071: What the unreferenced items turned out to be
 
-- **Status**: Accepted
+- **Status**: Accepted; its open items are closed by [ADR-0073](0073-rule-13s-other-half-and-three-declarations-that-were-checks.md) (Type 3, the descriptor's metrics, Rule 13's `let _ =`) and [ADR-0074](0074-the-reader-copied-the-file-once-per-object.md) (efficiency — and the hypothesis this record named, that the arena clones on every read, was wrong)
 - **Date**: 2026-09-06
 - **Commit**: (see the commit that adds this file)
 

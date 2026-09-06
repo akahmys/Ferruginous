@@ -1,6 +1,6 @@
 # ADR-0061: Four more walks are bounded, and two of the six were not what the sweep said
 
-- **Status**: Accepted; closes the open item in [ADR-0060](0060-a-reference-chain-is-bounded-by-what-it-has-seen.md)
+- **Status**: Accepted; closes the open item in [ADR-0060](0060-a-reference-chain-is-bounded-by-what-it-has-seen.md). Both items it left open are now closed: the page-tree expansion by [ADR-0062](0062-a-page-tree-that-is-not-a-tree-is-reported-not-expanded.md), and `OutlineNode`'s `Drop` by [ADR-0075](0075-two-costs-a-caller-never-asked-for.md). Its third remark, that Rule 6 names no tool, stopped being true with [ADR-0066](0066-rule-6-gets-a-check-and-the-check-finds-a-sixth-walk.md) — `CODING.md`'s Rule 6 row now names `scripts/audit/unbounded_recursion.py`. The consequences below still describe all three as live
 - **Date**: 2026-09-05
 - **Commit**: (see the commit that adds this file)
 

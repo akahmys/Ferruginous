@@ -1,6 +1,6 @@
 # ADR-0014: The faithful-copy path is not built, and signing is limited to output this engine wrote
 
-- **Status**: Accepted; amends ADR-0012
+- **Status**: Accepted; amends ADR-0012. Its recommendation was carried out by [ADR-0071](0071-three-declarations-that-read-nothing-and-one-that-wrote-nothing.md) — `write_incremental_update` is deleted
 - **Date**: 2026-08-16
 - **Commit**: this record
 

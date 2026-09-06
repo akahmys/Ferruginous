@@ -1,6 +1,6 @@
 # ADR-0077: A command was seventy-two bytes because of one rare variant
 
-- **Status**: Accepted
+- **Status**: Accepted; the question it leaves open — whether the pre-parsed command form should be lazy — is answered no by [ADR-0079](0079-the-pre-parsed-command-form-stays-eager.md)
 - **Date**: 2026-09-06
 - **Commit**: (see the commit that adds this file)
 
