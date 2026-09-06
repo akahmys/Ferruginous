@@ -691,7 +691,7 @@ impl FontResource {
     }
 
     fn initialize_lifecycle(&mut self, doc: &Document) {
-        self.fallback_type = Some(self.infer_fallback_type());
+        self.fallback_type = Some(self.infer_fallback_type(doc));
         self.rescue_unicode_map();
         if let Some(declined) = self.init_collection_map() {
             self.decisions.push(declined);
@@ -713,43 +713,136 @@ impl FontResource {
         self.build_unified_map();
     }
 
-    fn infer_fallback_type(&self) -> FallbackFontType {
+    /// Which stand-in face a font that embeds no usable program is drawn with.
+    ///
+    /// **The order is the standard's, not a heuristic's.** ISO 32000-2 decides most of
+    /// this, and where it does not the answer follows what a mainstream reader does.
+    ///
+    /// | Question | What answers it | Clause |
+    /// | :--- | :--- | :--- |
+    /// | Is it CJK, and which collection? | `/CIDSystemInfo` `/Registry` and `/Ordering` | 9.7.3, Table 114 |
+    /// | Is it fixed-pitch? Is it serif? | `/FontDescriptor` `/Flags`, bits 1 and 2 | 9.8.2, Table 121 |
+    /// | There is no descriptor at all | Then it is a standard 14 font and its name is its identity | 9.6.2.2 |
+    /// | Nothing above answered | The name, and then a sans | *not decided by ISO* |
+    ///
+    /// **The descriptor comes first because the standard puts it first.** Arlington's
+    /// model gives `/FontDescriptor` as
+    /// `fn:IsRequired(fn:SinceVersion(2.0) || fn:NotStandard14Font())` — so in PDF 2.0 it
+    /// is required on every simple font, the standard-14 exception having been removed,
+    /// and `/Flags` is required within it. A reader that asks the *name* first is asking
+    /// the guess before the declaration.
+    ///
+    /// **This is ADR-0041's lesson applied to the other half of the font.** That record
+    /// is "a character collection is declared, not guessed", after the engine decided a
+    /// font's collection from `/BaseFont` substrings while `/CIDSystemInfo` said so
+    /// outright. The shape of a face was still being decided from substrings —
+    /// `contains("century")`, `contains("gothic")` — with `/Flags` declared, required,
+    /// and read by nothing.
+    ///
+    /// What ISO does not decide is which *file* stands in for each category. That is
+    /// `fallback_fonts`, and it follows the same shape a mainstream reader uses.
+    fn infer_fallback_type(&self, doc: &Document) -> FallbackFontType {
+        if let Some(kind) = self.declared_script() {
+            return kind;
+        }
+        if let Some(kind) = self.declared_shape(doc) {
+            return kind;
+        }
         let name = self.base_font.as_str().to_lowercase();
-        let subtype = self.subtype.as_str();
-        let is_multibyte =
-            subtype == "Type0" || subtype == "CIDFontType0" || subtype == "CIDFontType2";
+        if let Some(kind) = Self::standard_fourteen(&name) {
+            return kind;
+        }
+        Self::guessed_from_name(&name).unwrap_or(FallbackFontType::SansSerif)
+    }
 
-        if is_multibyte
-            || name.contains("mincho")
-            || name.contains("gothic")
-            || name.contains("hira")
-            || name.contains("koz")
-        {
-            if name.contains("mincho") || name.contains("serif") {
-                return FallbackFontType::JapaneseSerif;
+    /// The collection the font declares, per 9.7.3 — not what its name looks like.
+    ///
+    /// A Latin face substituted for a CJK one draws nothing, so script is asked before
+    /// shape. `Identity` declares no collection and so answers nothing here; a Type0 font
+    /// with `Identity` ordering falls through to the descriptor like any other.
+    fn declared_script(&self) -> Option<FallbackFontType> {
+        let ordering = self.cid_ordering.as_deref()?;
+        if !matches!(self.cid_registry.as_deref(), Some("Adobe")) {
+            return None;
+        }
+        match ordering {
+            // 9.7.3's Adobe collections. Korea1 and KR take the Japanese faces because
+            // those are the CJK faces this engine bundles; CNS1 and GB1 likewise.
+            "Japan1" | "Japan2" | "GB1" | "CNS1" | "Korea1" | "KR" => {
+                let name = self.base_font.as_str().to_lowercase();
+                if name.contains("mincho") || name.contains("ming") || name.contains("serif") {
+                    Some(FallbackFontType::JapaneseSerif)
+                } else {
+                    Some(FallbackFontType::JapaneseSans)
+                }
             }
-            return FallbackFontType::JapaneseSans;
+            _ => None,
         }
+    }
 
-        if name.contains("mono") || name.contains("courier") {
-            return FallbackFontType::Monospace;
+    /// `/FontDescriptor` `/Flags`: bit 1 is `FixedPitch`, bit 2 is `Serif` (Table 121).
+    ///
+    /// Required by the standard and, before 2026-09-06, read by nothing: the compliance
+    /// audit checked the key was *present* and no code took its value, so
+    /// [`FallbackFontType::Default`]'s own doc — "the loader picks by descriptor flags" —
+    /// described something that did not happen.
+    fn declared_shape(&self, doc: &Document) -> Option<FallbackFontType> {
+        let arena = doc.arena();
+        let dict = arena.get_dict(arena.get_object(self.descriptor?)?.as_dict_handle()?)?;
+        let flags = dict.get(&arena.name("Flags"))?.resolve(arena).as_integer()?;
+        if flags & 0b1 != 0 {
+            return Some(FallbackFontType::Monospace);
         }
-        if name.contains("serif")
-            || name.contains("times")
-            || name.contains("century")
-            || name.contains("georgia")
-        {
-            return FallbackFontType::Serif;
+        if flags & 0b10 != 0 {
+            return Some(FallbackFontType::Serif);
         }
-        if name.contains("sans")
-            || name.contains("arial")
-            || name.contains("helvetica")
-            || name.contains("verdana")
-        {
-            return FallbackFontType::SansSerif;
+        // Nonsymbolic (bit 6) without Serif is a sans by elimination; Symbolic (bit 3)
+        // says nothing about shape and is left to the name.
+        if flags & 0b10_0000 != 0 {
+            return Some(FallbackFontType::SansSerif);
         }
+        None
+    }
 
-        FallbackFontType::Default
+    /// The standard 14 of 9.6.2.2, which a file may name without a descriptor.
+    ///
+    /// Reached only when there is no descriptor to read, which before PDF 2.0 is legal
+    /// exactly for these fonts. `Symbol` and `ZapfDingbats` are in the table and get no
+    /// stand-in: substituting a text face would draw the wrong glyphs rather than similar
+    /// ones, which is worse than drawing the default.
+    fn standard_fourteen(name: &str) -> Option<FallbackFontType> {
+        let bare = name.rsplit('+').next().unwrap_or(name);
+        let stem: String = bare.chars().filter(char::is_ascii_alphanumeric).collect();
+        [
+            ("courier", FallbackFontType::Monospace),
+            ("helvetica", FallbackFontType::SansSerif),
+            ("arial", FallbackFontType::SansSerif),
+            ("times", FallbackFontType::Serif),
+        ]
+        .into_iter()
+        .find(|(needle, _)| stem.starts_with(needle))
+        .map(|(_, kind)| kind)
+    }
+
+    /// The last question, and the only one ISO does not put words to.
+    ///
+    /// A guess, and named one. Kept because a file may carry a descriptor whose `/Flags`
+    /// declares neither serif nor fixed-pitch nor nonsymbolic, and a name is then the
+    /// only thing left that is about the face at all.
+    fn guessed_from_name(name: &str) -> Option<FallbackFontType> {
+        if name.contains("mono") {
+            return Some(FallbackFontType::Monospace);
+        }
+        if ["sans", "verdana", "tahoma", "calibri", "segoe"].iter().any(|k| name.contains(k)) {
+            return Some(FallbackFontType::SansSerif);
+        }
+        if ["serif", "century", "georgia", "garamond", "palatino", "book", "roman"]
+            .iter()
+            .any(|k| name.contains(k))
+        {
+            return Some(FallbackFontType::Serif);
+        }
+        None
     }
 
     fn update_physical_widths_from_reconstructed(&mut self) {
@@ -2978,6 +3071,145 @@ impl fepdf_font::reconstruction::FontInfo for FontResource {
     }
     fn to_gid_hint(&self, cid: u32, _hint_name: Option<&str>) -> u32 {
         self.to_gid(cid, None)
+    }
+}
+
+#[cfg(test)]
+mod substitution {
+    //! Which face stands in for a font the file does not embed.
+    //!
+    //! The order is the standard's: the collection a CID font declares (9.7.3), then
+    //! `/FontDescriptor` `/Flags` (9.8.2, Table 121), then — only where there is no
+    //! descriptor, which before PDF 2.0 is legal exactly for the standard 14 — the name
+    //! (9.6.2.2). What ISO does not decide is which file stands in for each category.
+
+    use super::{FallbackFontType, FontResource};
+    use crate::Document;
+    use crate::ingest::IngestionOptions;
+    use std::fmt::Write as _;
+
+    fn assemble(objects: &[String]) -> bytes::Bytes {
+        let mut out = String::from("%PDF-2.0\n");
+        let mut offsets = Vec::new();
+        for (index, body) in objects.iter().enumerate() {
+            offsets.push(out.len());
+            let _ = write!(out, "{} 0 obj\n{body}\nendobj\n", index + 1);
+        }
+        let table_at = out.len();
+        let size = objects.len() + 1;
+        let _ = write!(out, "xref\n0 {size}\n0000000000 65535 f \n");
+        for offset in &offsets {
+            let _ = writeln!(out, "{offset:010} 00000 n ");
+        }
+        let _ =
+            write!(out, "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{table_at}\n%%EOF\n");
+        bytes::Bytes::from(out.into_bytes())
+    }
+
+    /// A one-page document whose only font is `font`, at object 5.
+    fn face_chosen_for(font: &str, extra: &[String]) -> Option<FallbackFontType> {
+        let mut objects = vec![
+            "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] \
+              /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>"
+                .to_string(),
+            "<< /Length 33 >>\nstream\nBT /F1 12 Tf 20 100 Td (h) Tj ET\nendstream".to_string(),
+            font.to_string(),
+        ];
+        objects.extend_from_slice(extra);
+        let doc = Document::open(assemble(&objects), &IngestionOptions::default())
+            .expect("the fixture opens");
+        doc.get_font(crate::handle::Handle::new(5)).expect("the font loads").fallback_type
+    }
+
+    const SERIF_DESCRIPTOR: &str = "<< /Type /FontDescriptor /FontName /Frobnicate /Flags 2 \
+        /FontBBox [0 0 1000 1000] /ItalicAngle 0 /Ascent 900 /Descent -200 \
+        /CapHeight 700 /StemV 80 >>";
+
+    /// `/Flags` decides, and it is asked before the name.
+    ///
+    /// **The entry the standard requires, that nothing read.** Arlington gives
+    /// `/FontDescriptor` as required whenever the file is 2.0 or the font is not one of
+    /// the standard 14, and `/Flags` as required within it — so this is the declaration,
+    /// where a name is a guess about the same thing. `/Flags` was declared in the schema,
+    /// checked for *presence* by the compliance audit, and read by no code until
+    /// 2026-09-06.
+    #[test]
+    fn the_descriptor_is_asked_before_the_name() {
+        for (flags, want) in [
+            (2, FallbackFontType::Serif),      // bit 2, Serif
+            (1, FallbackFontType::Monospace),  // bit 1, FixedPitch
+            (32, FallbackFontType::SansSerif), // bit 6, Nonsymbolic and not Serif
+        ] {
+            let chosen = face_chosen_for(
+                "<< /Type /Font /Subtype /TrueType /BaseFont /Frobnicate \
+                  /Encoding /WinAnsiEncoding /FontDescriptor 6 0 R >>",
+                &[format!(
+                    "<< /Type /FontDescriptor /FontName /Frobnicate /Flags {flags} \
+                      /FontBBox [0 0 1000 1000] /ItalicAngle 0 /Ascent 900 /Descent -200 \
+                      /CapHeight 700 /StemV 80 >>"
+                )],
+            );
+            assert_eq!(chosen, Some(want), "/Flags {flags} decides");
+        }
+    }
+
+    /// And it wins over a name that says otherwise.
+    ///
+    /// `Arial` is a standard-14 alias and a sans by every name heuristic. A descriptor
+    /// declaring Serif is the file's own statement, and it is the one that counts.
+    #[test]
+    fn a_declaration_beats_a_name_that_disagrees_with_it() {
+        let chosen = face_chosen_for(
+            "<< /Type /Font /Subtype /TrueType /BaseFont /Arial \
+              /Encoding /WinAnsiEncoding /FontDescriptor 6 0 R >>",
+            &[SERIF_DESCRIPTOR.to_string()],
+        );
+        assert_eq!(chosen, Some(FallbackFontType::Serif), "the descriptor is the declaration");
+    }
+
+    /// With no descriptor, the name is the identity — which is legal only for these.
+    ///
+    /// Before PDF 2.0 a standard-14 font may omit its descriptor, and 9.6.2.2 is then
+    /// what says which face it is. A subset tag or a style suffix does not change that.
+    #[test]
+    fn without_a_descriptor_the_standard_fourteen_are_named() {
+        for (name, want) in [
+            ("helvetica", FallbackFontType::SansSerif),
+            ("helvetica-bold", FallbackFontType::SansSerif),
+            ("arial", FallbackFontType::SansSerif),
+            ("abcdef+arialmt", FallbackFontType::SansSerif),
+            ("times-roman", FallbackFontType::Serif),
+            ("abcdef+timesnewromanpsmt", FallbackFontType::Serif),
+            ("couriernewpsmt", FallbackFontType::Monospace),
+        ] {
+            assert_eq!(FontResource::standard_fourteen(name), Some(want), "{name}");
+        }
+        // Also in the fourteen, and deliberately without a stand-in: putting their code
+        // points through a text face draws the wrong glyphs, not similar ones.
+        assert_eq!(FontResource::standard_fourteen("symbol"), None);
+        assert_eq!(FontResource::standard_fourteen("zapfdingbats"), None);
+    }
+
+    /// The name is the last question and may decline to answer.
+    ///
+    /// `None` is what lets the descriptor be asked first. A heuristic that always
+    /// guessed would make the file's own declaration unreachable.
+    #[test]
+    fn the_name_is_the_last_question_and_the_only_guess() {
+        assert_eq!(FontResource::guessed_from_name("garamond"), Some(FallbackFontType::Serif));
+        assert_eq!(FontResource::guessed_from_name("verdana"), Some(FallbackFontType::SansSerif));
+        assert_eq!(
+            FontResource::guessed_from_name("consolas-mono"),
+            Some(FallbackFontType::Monospace)
+        );
+        assert_eq!(FontResource::guessed_from_name("wingdings"), None);
+        // A compound name means the sans: "sans" is asked before "serif" for that reason.
+        assert_eq!(
+            FontResource::guessed_from_name("dejavusans-serif"),
+            Some(FallbackFontType::SansSerif)
+        );
     }
 }
 

@@ -131,3 +131,4 @@ quietly wrong — which is the failure this log exists to make visible.
 | 0064 | [Redaction removed the second run of a page and no other](0064-redaction-removed-the-second-run-of-a-page-and-no-other.md) | — |
 | 0065 | [`gs` reaches Table 57's line parameters, and PDFKit says which output was right](0065-gs-reaches-table-57s-line-parameters.md) | — |
 | 0066 | [Rule 6 gets a check, and the check finds a sixth walk on its first run](0066-rule-6-gets-a-check-and-the-check-finds-a-sixth-walk.md) | Closes 0061 |
+| 0067 | [A substitute face is declared, not guessed](0067-a-substitute-face-is-declared-not-guessed.md) | Extends 0041 |
