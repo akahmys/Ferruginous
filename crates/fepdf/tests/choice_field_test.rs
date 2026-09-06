@@ -103,6 +103,8 @@ fn test_read_combo_box_simple_options() {
     assert_eq!(field.field_type.as_deref(), Some("Ch"));
     assert!(field.is_combo());
     assert!(!field.is_multiselect());
+    // Bit 19 (Edit) is clear: a plain combo box offers its `/Opt` list and nothing else.
+    assert!(!field.is_editable_combo());
     assert_eq!(
         field.options,
         vec![
@@ -113,6 +115,34 @@ fn test_read_combo_box_simple_options() {
     );
     assert_eq!(field.value.as_deref(), Some("Green"));
     assert_eq!(field.selected_indices, vec![1]);
+}
+
+/// A combo box with bit 19 set lets the reader type a value that is not in `/Opt`.
+///
+/// `is_editable_combo` reads that bit, and until 2026-09-06 nothing called it — its two
+/// siblings `is_combo` and `is_multiselect` were both asserted here and it was not. An
+/// accessor over a `/Ff` bit that no test reaches is a bit the engine cannot be said to
+/// read (RR-15 Rule 20 keeps the accessor; this makes it true).
+#[test]
+fn an_editable_combo_is_distinguished_from_a_plain_one() {
+    // 131072 = bit 18 (Combo), 262144 = bit 19 (Edit).
+    let pdf = choice_form("/Ff 393216 /Opt [(Red) (Green)] /V (Puce)");
+    let report = InteractiveReport::survey(&pdf).expect("reads");
+    let field = &report.form.terminal[0];
+    assert!(field.is_combo());
+    assert!(field.is_editable_combo());
+    assert_eq!(field.value.as_deref(), Some("Puce"), "a typed value need not be in /Opt");
+}
+
+/// Edit without Combo is not an editable combo: Table 232 makes bit 19 meaningful only
+/// with bit 18, and a list box with it set is still a list box.
+#[test]
+fn edit_without_combo_is_not_an_editable_combo() {
+    let pdf = choice_form("/Ff 262144 /Opt [(Red) (Green)]");
+    let report = InteractiveReport::survey(&pdf).expect("reads");
+    let field = &report.form.terminal[0];
+    assert!(!field.is_combo());
+    assert!(!field.is_editable_combo());
 }
 
 #[test]

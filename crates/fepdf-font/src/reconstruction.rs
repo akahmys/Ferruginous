@@ -1190,7 +1190,7 @@ impl FontReconstructor {
             gid
         } else if resource.is_cid_keyed()
             && (resource.cid_to_gid_map().is_some()
-                || !resource.base_font().contains('+')
+                || crate::subset::subset_tag(resource.base_font()).is_none()
                 || resource.is_cjk())
         {
             resource.to_gid_hint(cid, None)

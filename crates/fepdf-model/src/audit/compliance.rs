@@ -1,6 +1,9 @@
 use crate::document::PdfCatalog;
 use crate::document::page::{PdfAnnotation, PdfPageDict};
-use crate::font::schema::{PdfCIDFont, PdfFont, PdfFontDescriptor, PdfOpenTypeFont};
+use crate::font::schema::{
+    PdfCIDFont, PdfFont, PdfFontDescriptor, PdfOpenTypeFont, PdfTrueTypeFont, PdfType0Font,
+    PdfType1Font,
+};
 use crate::graphics::schema::PdfExtGState;
 use crate::metadata::PdfInfo;
 use crate::{Document, FromPdfObject, Object, PdfSchema};
@@ -117,47 +120,79 @@ impl<'a> ComplianceAuditor<'a> {
         obj: &Object,
         arena: &crate::PdfArena,
     ) {
-        // Try parsing as OpenType
-        if let Some(n) = dict.get(&arena.name("Subtype")).and_then(|o| o.as_name())
-            && let Some(name) = arena.get_name(n)
-            && name.as_str() == "OpenType"
-            && PdfOpenTypeFont::from_pdf_object(obj.clone(), arena).is_ok()
-        {
-            self.report.clauses_encountered.insert(PdfOpenTypeFont::iso_clause());
+        self.audit_font_subtypes(dict, obj, arena);
+        self.audit_structural_types(dict, obj, arena);
+    }
+
+    /// Records the clause for whichever font subtype `/Subtype` declares.
+    ///
+    /// A font's subtype decides which clause of 9.6/9.7 defines it, so the clause
+    /// recorded is the one the document itself named. A dictionary that declares a
+    /// subtype but does not parse as it records nothing: the clause list says what
+    /// the document met, not what it attempted.
+    fn audit_font_subtypes(
+        &mut self,
+        dict: &std::collections::BTreeMap<crate::handle::Handle<crate::PdfName>, Object>,
+        obj: &Object,
+        arena: &crate::PdfArena,
+    ) {
+        let Some(subtype) = name_at(dict, arena, "Subtype") else { return };
+        let met = match subtype.as_str() {
+            "Type1" | "MMType1" => PdfType1Font::from_pdf_object(obj.clone(), arena)
+                .is_ok()
+                .then(PdfType1Font::iso_clause),
+            "TrueType" => PdfTrueTypeFont::from_pdf_object(obj.clone(), arena)
+                .is_ok()
+                .then(PdfTrueTypeFont::iso_clause),
+            "Type0" => PdfType0Font::from_pdf_object(obj.clone(), arena)
+                .is_ok()
+                .then(PdfType0Font::iso_clause),
+            "OpenType" => PdfOpenTypeFont::from_pdf_object(obj.clone(), arena)
+                .is_ok()
+                .then(PdfOpenTypeFont::iso_clause),
+            "CIDFontType0" | "CIDFontType2" => {
+                PdfCIDFont::from_pdf_object(obj.clone(), arena).is_ok().then(PdfCIDFont::iso_clause)
+            }
+            _ => None,
+        };
+        if let Some(clause) = met {
+            self.report.clauses_encountered.insert(clause);
+        }
+    }
+
+    /// Records the clauses for the non-font types a dictionary may declare.
+    fn audit_structural_types(
+        &mut self,
+        dict: &std::collections::BTreeMap<crate::handle::Handle<crate::PdfName>, Object>,
+        obj: &Object,
+        arena: &crate::PdfArena,
+    ) {
+        if let Some(type_name) = name_at(dict, arena, "Type") {
+            if type_name == "ExtGState" && PdfExtGState::from_pdf_object(obj.clone(), arena).is_ok()
+            {
+                self.report.clauses_encountered.insert(PdfExtGState::iso_clause());
+            }
+            if type_name == "Page" && PdfPageDict::from_pdf_object(obj.clone(), arena).is_ok() {
+                self.report.clauses_encountered.insert(PdfPageDict::iso_clause());
+            }
         }
 
-        // Try parsing as CIDFont
-        if let Some(n) = dict.get(&arena.name("Subtype")).and_then(|o| o.as_name())
-            && let Some(name) = arena.get_name(n)
-            && (name.as_str() == "CIDFontType0" || name.as_str() == "CIDFontType2")
-            && PdfCIDFont::from_pdf_object(obj.clone(), arena).is_ok()
-        {
-            self.report.clauses_encountered.insert(PdfCIDFont::iso_clause());
-        }
-
-        // Try parsing as ExtGState
-        if let Some(n) = dict.get(&arena.name("Type")).and_then(|o| o.as_name())
-            && let Some(name) = arena.get_name(n)
-            && name.as_str() == "ExtGState"
-            && PdfExtGState::from_pdf_object(obj.clone(), arena).is_ok()
-        {
-            self.report.clauses_encountered.insert(PdfExtGState::iso_clause());
-        }
-
-        // Try parsing as Page
-        if let Some(n) = dict.get(&arena.name("Type")).and_then(|o| o.as_name())
-            && let Some(name) = arena.get_name(n)
-            && name.as_str() == "Page"
-            && PdfPageDict::from_pdf_object(obj.clone(), arena).is_ok()
-        {
-            self.report.clauses_encountered.insert(PdfPageDict::iso_clause());
-        }
-
-        // Try parsing as Annotation
-        if let Some(_n) = dict.get(&arena.name("Subtype")).and_then(|o| o.as_name())
+        // An annotation is known by carrying a `/Subtype` at all: 12.5.2 makes the
+        // entry required, and the subtypes of Table 171 are open-ended.
+        if name_at(dict, arena, "Subtype").is_some()
             && PdfAnnotation::from_pdf_object(obj.clone(), arena).is_ok()
         {
             self.report.clauses_encountered.insert(PdfAnnotation::iso_clause());
         }
     }
+}
+
+/// Reads `key` from `dict` as a name, if it is one.
+fn name_at(
+    dict: &std::collections::BTreeMap<crate::handle::Handle<crate::PdfName>, Object>,
+    arena: &crate::PdfArena,
+    key: &str,
+) -> Option<String> {
+    let handle = dict.get(&arena.name(key))?.as_name()?;
+    Some(arena.get_name(handle)?.as_str().to_string())
 }
