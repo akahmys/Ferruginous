@@ -9,6 +9,14 @@
 //! returned on the first failure, the 718 pages after the first of them were unreadable
 //! too. Neither was visible: `crosscheck_roundtrip.sh` measures text with PDFKit, which
 //! reads all 846 pages, and never asked this engine.
+//!
+//! **The corpus tests here skip when `samples/` is absent, which `.gitignore` makes it on
+//! every machine but the one that generated it** — so on a fresh clone they passed
+//! without running, which is [ADR-0068](../../../docs/adr/0068-a-suite-that-skipped-itself-and-asserted-nothing.md)'s
+//! shape. They are kept, because 846 real pages is what they measure and a fixture cannot
+//! stand in for that. What was missing is a test of the *defect*, which needs no corpus:
+//! `a_page_that_paints_with_a_pattern_yields_its_text` builds the operand shape that
+//! failed and runs everywhere.
 
 use fepdf::{IngestionOptions, PdfDocument};
 use std::sync::OnceLock;
@@ -71,4 +79,61 @@ fn every_page_of_the_sample_extracts() {
     let failed: Vec<usize> =
         (0..pages).filter(|&i| document.extract_text(i).is_err()).map(|i| i + 1).collect();
     assert!(failed.is_empty(), "pages that would not extract: {failed:?}");
+}
+
+/// `/Pattern cs` then `/P1 scn`, which is the operand shape that used to fail.
+///
+/// One operand, and it is a name. The interpreter chose how to read `scn`'s operands by
+/// counting them, so a single operand meant a single grey component and a name is not a
+/// number. This needs no corpus: the failure is in reading one content stream.
+#[test]
+fn a_page_that_paints_with_a_pattern_yields_its_text() {
+    use std::fmt::Write as _;
+
+    let content = "q /Pattern cs /P1 scn 0 0 100 100 re f Q\n\
+                   BT /F1 24 Tf 20 120 Td (Painted beside a pattern) Tj ET\n";
+    let objects = [
+        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Contents 4 0 R \
+          /Resources << /Font << /F1 5 0 R >> /Pattern << /P1 6 0 R >> >> >>"
+            .to_string(),
+        format!("<< /Length {} >>\nstream\n{content}endstream", content.len()),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+        {
+            let cell = "1 0 0 RG 0 0 m 10 10 l S\n";
+            format!(
+                "<< /Type /Pattern /PatternType 1 /PaintType 1 /TilingType 1 \
+                  /BBox [0 0 10 10] /XStep 10 /YStep 10 /Resources << >> /Length {} >>\n\
+                 stream\n{cell}endstream",
+                cell.len()
+            )
+        },
+    ];
+
+    let mut out = String::from("%PDF-2.0\n");
+    let mut offsets = Vec::new();
+    for (index, body) in objects.iter().enumerate() {
+        offsets.push(out.len());
+        let _ = write!(out, "{} 0 obj\n{body}\nendobj\n", index + 1);
+    }
+    let table_at = out.len();
+    let size = objects.len() + 1;
+    let _ = write!(out, "xref\n0 {size}\n0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(out, "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{table_at}\n%%EOF\n");
+
+    let document = PdfDocument::open_with_options(
+        bytes::Bytes::from(out.into_bytes()),
+        &IngestionOptions::default(),
+    )
+    .expect("the fixture opens");
+
+    let text = document.extract_text(0).expect("the page extracts");
+    assert!(
+        text.contains("Painted beside a pattern"),
+        "the page paints with a pattern and still shows its text: {text:?}"
+    );
 }

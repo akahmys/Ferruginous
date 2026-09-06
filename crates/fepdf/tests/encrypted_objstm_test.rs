@@ -9,8 +9,56 @@
 //! became the default. `crosscheck_objstm.sh` asked PDFKit whether the packed and
 //! encrypted file was readable and PDFKit said yes, correctly: the *writer* was right
 //! all along. Nobody asked this engine to read it back, which is the gap this test is.
+//!
+//! **These read `samples/sample.pdf` until 2026-09-06, and `.gitignore` excludes
+//! `/samples/`** — so on every machine but the one that generated the corpus, all three
+//! returned early and passed without running
+//! ([ADR-0068](../../../docs/adr/0068-a-suite-that-skipped-itself-and-asserted-nothing.md)'s
+//! shape). The sample was only ever "a document with text on page 1", and the subject is
+//! the round trip through this engine's own writer, so the fixture is built here and
+//! nothing skips.
 
 use fepdf::{IngestionOptions, PdfDocument, SaveOptions};
+use std::fmt::Write as _;
+
+/// A one-page document with text, assembled here so no corpus is needed.
+fn fixture() -> bytes::Bytes {
+    let content = "BT /F1 24 Tf 40 120 Td (Encrypted and packed and read back) Tj ET\n";
+    let objects = [
+        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 200] /Contents 4 0 R \
+          /Resources << /Font << /F1 5 0 R >> >> >>"
+            .to_string(),
+        format!("<< /Length {} >>\nstream\n{content}endstream", content.len()),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"
+            .to_string(),
+    ];
+
+    let mut out = String::from("%PDF-2.0\n");
+    let mut offsets = Vec::new();
+    for (index, body) in objects.iter().enumerate() {
+        offsets.push(out.len());
+        let _ = write!(out, "{} 0 obj\n{body}\nendobj\n", index + 1);
+    }
+    let table_at = out.len();
+    let size = objects.len() + 1;
+    let _ = write!(out, "xref\n0 {size}\n0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(out, "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{table_at}\n%%EOF\n");
+    bytes::Bytes::from(out.into_bytes())
+}
+
+/// The fixture, or a file this engine wrote, opened with an optional password.
+fn open_bytes(data: bytes::Bytes, password: Option<&str>) -> PdfDocument {
+    PdfDocument::open_with_options(
+        data,
+        &IngestionOptions { password: password.map(str::to_string), ..IngestionOptions::default() },
+    )
+    .expect("the document opens")
+}
 
 fn open(path: &str, password: Option<&str>) -> Option<PdfDocument> {
     let Ok(data) = std::fs::read(path) else {
@@ -33,17 +81,13 @@ fn open(path: &str, password: Option<&str>) -> Option<PdfDocument> {
 /// second has to wait for a key.
 #[test]
 fn an_encrypted_document_reads_back_whichever_way_its_objects_are_stored() {
-    let source = "../../samples/sample.pdf";
-    let Some(base_doc) = open(source, None) else {
-        eprintln!("Sample {source} not found, skipping");
-        return;
-    };
+    let base_doc = open_bytes(fixture(), None);
     let want = base_doc.extract_text(0).expect("the plaintext has a first page");
     assert!(!want.is_empty(), "the baseline has no text, so this would prove nothing");
 
     for packed in [true, false] {
         let out = std::env::temp_dir().join(format!("fepdf-encrypted-packed-{packed}.pdf"));
-        let document = open(source, None).expect("source reopens");
+        let document = open_bytes(fixture(), None);
         let options = SaveOptions {
             password: Some("open me".to_string()),
             obj_stm: packed,
@@ -71,11 +115,7 @@ fn an_encrypted_document_reads_back_whichever_way_its_objects_are_stored() {
 /// not" — stops being true once the structure is packed.
 #[test]
 fn a_wrong_password_still_refuses_a_packed_document() {
-    let source = "../../samples/sample.pdf";
-    let Some(document) = open(source, None) else {
-        eprintln!("Sample {source} not found, skipping");
-        return;
-    };
+    let document = open_bytes(fixture(), None);
     let out = std::env::temp_dir().join("fepdf-encrypted-packed-wrong.pdf");
     document
         .save_with_options(
@@ -116,11 +156,7 @@ fn a_wrong_password_still_refuses_a_packed_document() {
 /// log a constant instead of a signal.
 #[test]
 fn reading_a_correct_encrypted_document_records_nothing() {
-    let source = "../../samples/sample.pdf";
-    let Some(document) = open(source, None) else {
-        eprintln!("Sample {source} not found, skipping");
-        return;
-    };
+    let document = open_bytes(fixture(), None);
     let out = std::env::temp_dir().join("fepdf-encrypted-packed-quiet.pdf");
     document
         .save_with_options(
