@@ -73,6 +73,20 @@ nothing else running.
 - **Peak RSS is not the measurement for a memory trade in a short-lived process.** Noting
   it because the first attempt here reached for `/usr/bin/time -l`, got noise, and would
   have concluded the compression bought nothing.
-- **Reading a 24 MB document still peaks at about 1.9 GB.** That is 80× the file, it
-  dwarfs the 18 MB this record is about, and nothing here addresses it. It is the next
-  question about this command.
+- **Reading a 24 MB document holds 1,346 MB live.** Measured with a counting global
+  allocator in a throwaway crate outside the workspace, since `unsafe_code = "forbid"`
+  here and a `GlobalAlloc` needs it: 1,346 MB live while the document is held, 1,646 MB
+  peak, 8,635 MB allocated in total over the read, and 0 MB live after the document is
+  dropped — no leak, just a large resident document.
+
+  **Peak RSS could not have told us this and nearly told us the opposite.** Dropping the
+  whole document returns 30 MB of 1,935 MB to the OS, which reads like "the memory was
+  never live" and is instead the allocator keeping its pages. That misreading was made
+  here before the allocator was counted.
+
+  Two things dominate, both measured by disabling them: the pre-parsed
+  `SublimatedData::Commands` form costs **596 MB** (1,346 → 750 MB without it), and the
+  arena's 341,424 dictionaries cost **169 MB** — a `BTreeMap` holding two entries occupies
+  519 bytes, because it allocates a node sized for eleven. Neither is addressed here.
+  Dropping the command form trades page-display latency for memory and changing the
+  dictionary representation moves the arena's core API; both are decisions, not cleanups.
