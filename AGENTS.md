@@ -42,9 +42,17 @@ phase document and an ADR records why.
 
 ## Writing rules
 
+Three of these five are checked by `scripts/audit/documents.py`, which
+`verify_compliance.sh` runs: the tense rule 2 states, the links rule 1 implies, and the
+integrity of the ADR index. Rules 3 and 5 are held by review, and rule 4 says what that
+costs ([ADR-0081](docs/adr/0081-the-writing-rules-had-nothing-behind-them.md)).
+
 1. **One fact, one home.** If it belongs in two places, one links instead of restating.
+   *Checked in part: every relative link in the documents and in source doc comments must
+   resolve — seven in source did not.*
 2. **Present tense here and in `ARCHITECTURE.md`; past tense in `docs/adr/`.** A reversal
-   is recorded, not deleted, so the reasoning is not repeated.
+   is recorded, not deleted, so the reasoning is not repeated. *Checked: a line carrying
+   both a date and a past-tense verb in either document fails the audit.*
 3. **A quoted figure carries its date**, or is re-derived before quoting. `status.sh`
    re-derives the ones these documents lean on, so a stale figure reads as a
    disagreement rather than as current. **A count stated twice is the case to watch**: the
@@ -52,7 +60,7 @@ phase document and an ADR records why.
    sentence went on saying "three" after Phase P had met one of them. `status.sh` derives
    the first and checks the second against it.
 4. **A rule that is not checked is a comment.** Every entry in `CODING.md` names what
-   enforces it, and says "nothing" where nothing does.
+   enforces it, and says "nothing" where nothing does. These rules say the same, above.
 5. **Prove a check fires by breaking the thing it checks.** Tests here have passed
    against the defect they were written for.
 

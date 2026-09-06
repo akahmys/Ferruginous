@@ -85,16 +85,18 @@ before Rule 17 was retired. A derivation that reads comments is not a derivation
 | 4 | No non-deterministic collections in core crates | 10 |
 | 5 | No `String`/`anyhow` errors in a `Result` | 11 |
 | 6 | No `filter_map(Result::ok)` | 13 |
-| 7 | Test code separation — no standalone test file in `src/` | 14 |
-| 8 | Excessive cloning (warns; does not fail) | 15 |
-| 9 | MSRV stated as one version across `Cargo.toml`, `.rust-toolchain.toml` and `README.md` | — |
-| 10 | `cargo check --workspace` | — |
-| 11 | `cargo clippy --workspace --all-targets -- -D warnings` | 4, 5 |
-| 12 | **No dependency that compiles C** | **9** |
-| 13 | **No unbounded recursion over a document's graph** | **6** |
-| 14 | `cargo fmt --all --check` | 19 |
-| 15 | `cargo deny check licenses` | 16 |
-| 16 | `betterleaks dir .` | 18 |
+| 7 | **No `Result` discarded by `let _ =` without a reason** | **13** |
+| 8 | Test code separation — no standalone test file in `src/` | 14 |
+| 9 | Excessive cloning (warns; does not fail) | 15 |
+| 10 | MSRV stated as one version across `Cargo.toml`, `.rust-toolchain.toml` and `README.md` | — |
+| 11 | `cargo check --workspace` | — |
+| 12 | `cargo clippy --workspace --all-targets -- -D warnings` | 4, 5 |
+| 13 | **No dependency that compiles C** | **9** |
+| 14 | **No unbounded recursion over a document's graph** | **6** |
+| 15 | **Document tense, links, and the ADR index** | **`AGENTS.md` 1, 2** |
+| 16 | `cargo fmt --all --check` | 19 |
+| 17 | `cargo deny check licenses` | 16 |
+| 18 | `betterleaks dir .` | 18 |
 
 **Rules 3 and 7 are not here and are not unenforced.** `unsafe_code = "forbid"` fails the
 build on an `unsafe` block, and a `static mut` cannot be read without one, so `rustc`

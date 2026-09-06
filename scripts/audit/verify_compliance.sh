@@ -377,6 +377,9 @@ rm -f /tmp/fepdf_rule6.$$
 # so diffs accumulated silently while the audit stayed green. Rule 1 reads the
 # "// RR-15 Limit:" marker from a function's signature region rather than its
 # fn line precisely so that formatting and the audit can both hold at once.
+echo "[Docs] Checking tense, links and the ADR index..."
+python3 scripts/audit/documents.py || ERROR=1
+
 echo "[Rule 19] Checking formatting..."
 if cargo fmt --all --check > /dev/null 2>&1; then
     echo "  PASS"
