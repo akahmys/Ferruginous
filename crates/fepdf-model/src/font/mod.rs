@@ -82,6 +82,8 @@ pub struct FontResource {
     pub widths: BTreeMap<u32, f32>,
     /// Vertical widths for vertical writing mode.
     pub vertical_widths: BTreeMap<u32, (f32, f32, f32)>, // (w1, v_x, v_y)
+    /// `/DW2` as `(position_y, displacement_y)`; 9.7.4.3's `[880 -1000]` when absent.
+    pub default_vertical: (f32, f32),
     /// Default width for glyphs not present in the widths map.
     pub default_width: f32,
     /// The writing mode (0 for horizontal, 1 for vertical).
@@ -333,6 +335,7 @@ impl FontResource {
             last_char: 255,
             widths: BTreeMap::new(),
             vertical_widths: BTreeMap::new(),
+            default_vertical: (880.0, -1000.0),
             default_width: 1000.0,
             wmode: 0,
             is_bold: false,
@@ -635,6 +638,7 @@ impl FontResource {
             last_char: metrics.last,
             widths: metrics.widths,
             vertical_widths: metrics.v_widths,
+            default_vertical: metrics.default_vertical,
             default_width: metrics.default_width,
             wmode: metrics::detect_wmode(dict, arena) as u8,
             is_bold,
@@ -1925,18 +1929,25 @@ impl FontResource {
         Some(cmap.into_bytes())
     }
 
-    /// Returns the vertical metrics for a CID: (w1_y, v_x, v_y).
+    /// Returns the vertical metrics for a CID: `(w1_y, v_x, v_y)`.
     ///
-    /// w1_y is the vertical advance (natively negative in PDF spec).
-    /// (v_x, v_y) is the position of the glyph origin relative to the horizontal origin.
+    /// `w1_y` is the vertical advance, natively negative. `(v_x, v_y)` positions the
+    /// glyph origin relative to the horizontal one.
+    ///
+    /// **The default comes from `/DW2` when the font declares one** (9.7.4.3). It was
+    /// `(-1000, w0/2, 880)` written into this function until 2026-09-06 — which is the
+    /// standard's *default* `[880 -1000]`, so a font that said nothing was laid out
+    /// correctly and a font that said something else was laid out as though it had not.
+    /// `/DW` beside it had been read from the file all along.
+    ///
+    /// `v_x` is never declared: 9.7.4.3 fixes it at half the glyph's horizontal width.
     pub fn glyph_vertical_metrics(&self, cid: u32) -> (f32, f32, f32) {
         if let Some(&metrics) = self.vertical_widths.get(&cid) {
             return metrics;
         }
-        // Default values: (w1_y, v_x, v_y)
-        // From PDF spec: Default w1 = (0, -1000), Default v = (w0/2, 880)
         let w0 = *self.widths.get(&cid).unwrap_or(&self.default_width);
-        (-1000.0, w0 / 2.0, 880.0)
+        let (v_y, w1_y) = self.default_vertical;
+        (w1_y, w0 / 2.0, v_y)
     }
 
     /// Maps a character code to the text it represents.
@@ -3071,6 +3082,75 @@ impl fepdf_font::reconstruction::FontInfo for FontResource {
     }
     fn to_gid_hint(&self, cid: u32, _hint_name: Option<&str>) -> u32 {
         self.to_gid(cid, None)
+    }
+}
+
+#[cfg(test)]
+mod vertical_defaults {
+    //! `/DW2` is the font's own default vertical metrics (9.7.4.3), and is read.
+
+    use crate::font::metrics::FontMetrics;
+    use crate::{Object, PdfArena};
+    use std::collections::BTreeMap;
+
+    /// A CIDFont dictionary built by `fill`, in an arena of its own.
+    ///
+    /// `fill` takes the arena because a handle belongs to the one that issued it. Two
+    /// tests in this file have now been written with the array in one arena and the
+    /// dictionary in another; the handles collide and the reader silently sees something
+    /// else. It is the failure mode `Handle` has, and a helper that hands the arena over
+    /// is what stops it.
+    fn cid_font(
+        fill: impl Fn(&PdfArena, &mut BTreeMap<crate::Handle<crate::PdfName>, Object>),
+    ) -> (PdfArena, BTreeMap<crate::Handle<crate::PdfName>, Object>) {
+        let arena = PdfArena::new();
+        let mut dict = BTreeMap::new();
+        fill(&arena, &mut dict);
+        (arena, dict)
+    }
+
+    fn numbers(arena: &PdfArena, values: &[f64]) -> Object {
+        Object::Array(arena.alloc_array(values.iter().map(|v| Object::Real(*v)).collect()))
+    }
+
+    /// A font that declares `/DW2` is laid out by what it declares.
+    ///
+    /// **`/DW` beside it was read from the file all along**, while these two numbers were
+    /// written into `glyph_vertical_metrics` as literals. They happened to be 9.7.4.3's
+    /// defaults, so a font that said nothing was right and a font that said something
+    /// else was laid out as though it had not.
+    #[test]
+    fn a_declared_dw2_is_what_the_font_gets() {
+        let (arena, dict) = cid_font(|a, d| {
+            d.insert(a.name("DW2"), numbers(a, &[760.0, -880.0]));
+        });
+        let metrics = FontMetrics::parse_cid(&dict, &arena);
+        assert_eq!(metrics.default_vertical, (760.0, -880.0));
+    }
+
+    /// A font that declares nothing gets 9.7.4.3's `[880 -1000]`.
+    #[test]
+    fn an_absent_dw2_is_the_standards_default() {
+        let (arena, dict) = cid_font(|_, _| {});
+        let metrics = FontMetrics::parse_cid(&dict, &arena);
+        assert_eq!(
+            metrics.default_vertical,
+            (880.0, -1000.0),
+            "the values that were hard-coded are the standard's, and stay the default"
+        );
+    }
+
+    /// A `/DW2` that is not two numbers leaves the default whole.
+    ///
+    /// Not half of it: a font cannot declare one number and inherit the other, and a
+    /// partial read would put a declared position vector against a default displacement.
+    #[test]
+    fn a_malformed_dw2_leaves_the_default_whole() {
+        let (arena, dict) = cid_font(|a, d| {
+            d.insert(a.name("DW2"), numbers(a, &[760.0]));
+        });
+        let metrics = FontMetrics::parse_cid(&dict, &arena);
+        assert_eq!(metrics.default_vertical, (880.0, -1000.0));
     }
 }
 

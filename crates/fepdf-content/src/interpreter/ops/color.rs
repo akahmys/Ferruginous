@@ -25,6 +25,9 @@ impl Interpreter<'_> {
         let name = self.pop_name()?;
         let space = self.resolve_color_space(&name);
         let kind = space.as_ref().map_or_else(|| kind_from_name(name.as_str()), |s| s.kind);
+        if kind == ColorSpaceKind::Unknown {
+            self.record_unknown_colour_space(op, &name);
+        }
         if is_fill {
             self.state.fill_color_space = kind;
             self.state.fill_space = space.map(Arc::new);
@@ -33,6 +36,50 @@ impl Interpreter<'_> {
             self.state.stroke_space = space.map(Arc::new);
         }
         Ok(())
+    }
+
+    /// Records a `cs` operand that names no colour space this engine could reach.
+    ///
+    /// **Measured before this existed**: `/Frobnicate cs 1 0 0 sc` filled red, byte for
+    /// byte the same as `/DeviceRGB`, and `/Frobnicate cs 0 1 1 0 sc` filled the CMYK
+    /// red — the operand count decided the model and nothing said so. `CODING.md`'s
+    /// Rule 5 section names that exact failure as the thing a catch-all must not do:
+    /// "a catch-all turns 'unsupported colour space' into 'silently renders black'".
+    ///
+    /// Rule 20 asks for the clause and what was done, so the two cases are told apart:
+    /// a name the resources do not carry at all, and one they carry in a form this
+    /// engine could not read. `/Indexed` reaches here too and is **not** recorded — it
+    /// takes the operand-count path deliberately, because its operand is an index into a
+    /// palette rather than a colour, and saying so on every indexed image would bury the
+    /// case this is for.
+    ///
+    /// The colour drawn does not change. What the operand count produces is often right,
+    /// and often right is exactly what a silent acceptance looks like.
+    fn record_unknown_colour_space(&self, op: &str, name: &PdfName) {
+        let shown = name.as_str().to_string();
+        let key = self.doc.arena().intern_name(PdfName::new("ColorSpace"));
+        let (found, action) = match self.find_resource(&key, name) {
+            Ok(entry) => {
+                if matches!(
+                    ResolvedColorSpace::parse(&entry, self.doc.arena()).map(|s| s.kind),
+                    Some(ColorSpaceKind::Indexed)
+                ) {
+                    return;
+                }
+                (
+                    format!("/{shown} names a /ColorSpace resource this engine cannot read"),
+                    "took the colour model from how many operands the next sc/scn carries",
+                )
+            }
+            Err(_) => (
+                format!(
+                    "operator {op} was given /{shown}, which is neither a device family \
+                         nor a name in /ColorSpace"
+                ),
+                "took the colour model from how many operands the next sc/scn carries",
+            ),
+        };
+        self.doc.record(Decision::violation("8.6.3", found, action));
     }
 
     /// Resolves a `cs` operand: a device space name, or a key into the page's

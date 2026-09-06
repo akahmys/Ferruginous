@@ -16,6 +16,12 @@ pub struct FontMetrics {
     pub v_widths: BTreeMap<u32, (f32, f32, f32)>,
     /// Width used for codes absent from the table (`/MissingWidth` or `/DW`).
     pub default_width: f32,
+    /// `/DW2`, as `(position_y, displacement_y)` — 9.7.4.3's default vertical metrics.
+    ///
+    /// The standard's own defaults are `[880 -1000]`, and those were **hard-coded in the
+    /// accessor** until 2026-09-06 while `/DW` beside it was read from the file. A font
+    /// declaring anything else was laid out as though it had not.
+    pub default_vertical: (f32, f32),
 }
 
 impl Default for FontMetrics {
@@ -26,10 +32,31 @@ impl Default for FontMetrics {
             widths: BTreeMap::new(),
             v_widths: BTreeMap::new(),
             default_width: 1000.0,
+            default_vertical: (880.0, -1000.0),
         }
     }
 }
 impl FontMetrics {
+    /// `/DW2`, the default vertical metrics a CID font declares (9.7.4.3).
+    ///
+    /// `[vy w1y]`, and `None` for anything else — a malformed entry leaves the standard's
+    /// `[880 -1000]` *whole* rather than half of it, because a font cannot declare one
+    /// number and inherit the other. A declared position vector against a default
+    /// displacement is a layout nobody asked for.
+    fn parse_dw2(
+        df_dict: &BTreeMap<Handle<PdfName>, Object>,
+        arena: &PdfArena,
+    ) -> Option<(f32, f32)> {
+        let Object::Array(dw2) = Object::resolve(df_dict.get(&arena.name("DW2"))?, arena) else {
+            return None;
+        };
+        let items = arena.get_array(dw2)?;
+        let [vy, w1y] = &items[..] else { return None };
+        let vy = Object::resolve(vy, arena).as_f64()?;
+        let w1y = Object::resolve(w1y, arena).as_f64()?;
+        Some((vy as f32, w1y as f32))
+    }
+
     /// Parses CID-keyed font metrics from a CIDFont dictionary (W and DW).
     pub fn parse_cid(df_dict: &BTreeMap<Handle<PdfName>, Object>, arena: &PdfArena) -> Self {
         let mut metrics = Self { default_width: 1000.0, ..Self::default() };
@@ -37,6 +64,10 @@ impl FontMetrics {
         if let Some(dw_obj) = df_dict.get(&arena.name("DW")) {
             metrics.default_width =
                 Object::resolve(dw_obj, arena).as_f64().unwrap_or(1000.0) as f32;
+        }
+
+        if let Some(declared) = Self::parse_dw2(df_dict, arena) {
+            metrics.default_vertical = declared;
         }
 
         if let Some(Object::Array(wah)) =

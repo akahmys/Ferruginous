@@ -133,3 +133,4 @@ quietly wrong — which is the failure this log exists to make visible.
 | 0066 | [Rule 6 gets a check, and the check finds a sixth walk on its first run](0066-rule-6-gets-a-check-and-the-check-finds-a-sixth-walk.md) | Closes 0061 |
 | 0067 | [A substitute face is declared, not guessed](0067-a-substitute-face-is-declared-not-guessed.md) | Extends 0041 |
 | 0068 | [A suite that skipped itself in silence and asserted nothing when it ran](0068-a-suite-that-skipped-itself-and-asserted-nothing.md) | Covers 0064 |
+| 0069 | [Two things the file said that nothing read](0069-two-things-the-file-said-that-nothing-read.md) | With 0065 |
