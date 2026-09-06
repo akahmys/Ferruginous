@@ -51,8 +51,10 @@ impl FepdfApp {
                             rfd::FileDialog::new().add_filter("PDF", &["pdf"]).pick_file()
                     {
                         if self.total_pages > 0 {
-                            if let Ok(exe) = std::env::current_exe() {
-                                let _ = std::process::Command::new(exe).arg(p).spawn();
+                            if let Ok(exe) = std::env::current_exe()
+                                && let Err(e) = std::process::Command::new(exe).arg(p).spawn()
+                            {
+                                log::warn!("the external viewer would not start: {e}");
                             }
                         } else {
                             self.open_file(p, &ctx);

@@ -232,6 +232,9 @@ done < <(find $TARGET_DIRS -name "*.rs" | grep -vE "(tests|examples|src/bin)")
 echo "[Rule 13] Checking for filter_map(Result::ok)..."
 grep -rn "filter_map(Result::ok)" $TARGET_DIRS --include="*.rs" && { echo "  FAIL: Silent swallowing found"; ERROR=1; } || echo "  PASS"
 
+echo "[Rule 13] Checking for a Result discarded by \`let _ =\`..."
+python3 scripts/audit/discarded_results.py || ERROR=1
+
 # Rule 14: Test Code Separation (No dedicated test files inside src/)
 echo "[Rule 14] Checking test code separation (no standalone test files in src/)..."
 stray_tests=$(find $TARGET_DIRS -path "*/src/*" \

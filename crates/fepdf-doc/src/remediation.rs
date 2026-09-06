@@ -677,7 +677,18 @@ impl HeuristicEngine {
                 Interpreter::new(&mut collector, doc, res_dh, kurbo::Affine::IDENTITY);
             if let Some(contents) = page.resolve_attribute("Contents") {
                 let data = doc.decode_stream(&contents)?;
-                let _ = interpreter.execute_raw(&data);
+                // Recorded, not propagated: one unreadable page must not abandon the
+                // other twenty-four. But it must not read as a page with no structure
+                // either — this is the difference between "nothing to suggest here" and
+                // "nobody looked", and a caller acting on the first cannot tell.
+                if let Err(e) = interpreter.execute_raw(&data) {
+                    doc.decisions.push(fepdf_model::interpretation::Decision::violation(
+                        "7.8.2",
+                        format!("page {}'s content stream stopped partway: {e}", i + 1),
+                        "inferred structure from the spans collected before it stopped, so \
+                         this page's suggestions are incomplete",
+                    ));
+                }
             }
             candidates.extend(self.detect_headings(i, &collector.spans)?);
             candidates.extend(self.detect_tables(i, &collector.spans)?);

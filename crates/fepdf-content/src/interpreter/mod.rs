@@ -207,7 +207,32 @@ impl<'a> Interpreter<'a> {
 
         let mut parser = Parser::new(bytes::Bytes::copy_from_slice(data), self.doc.arena());
 
-        while let Ok(token) = parser.peek() {
+        loop {
+            // **Not `while let Ok(..)`.** That form ended the loop on a lexer failure and
+            // returned `Ok(())`, so a stream that stopped being readable partway was
+            // reported as one that ran to the end — the caller drew, or extracted, or
+            // inferred structure from whatever had been reached and could not tell that
+            // anything was missing. Six pages of `samples/fy05.pdf` are the reason the
+            // operator errors below carry their index; this is the same need one level up.
+            //
+            // Recorded rather than propagated: what was executed before the stream became
+            // unreadable is on the page, and refusing to draw it would lose more than it
+            // reports (7.8.2 makes the stream's content the page's content, not an
+            // all-or-nothing declaration).
+            let token = match parser.peek() {
+                Ok(token) => token,
+                Err(e) => {
+                    self.doc.record(Decision::violation(
+                        "7.8.2",
+                        format!(
+                            "the content stream stopped being readable after operator {}: {e}",
+                            self.op_index
+                        ),
+                        "kept what had already been executed and stopped there",
+                    ));
+                    return Ok(());
+                }
+            };
             if token == Token::EOF {
                 break;
             }

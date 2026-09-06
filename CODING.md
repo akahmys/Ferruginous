@@ -26,7 +26,7 @@ Derived from aerospace safety principles, the **RR-15 (Reliable Rust-15)** rules
 | **Rule 9** | Pure Rust | No dependency may compile C or C++ source, or bind a third-party native library. Platform API bindings the standard library already needs are not this. | `./scripts/audit/verify_compliance.sh` |
 | **Rule 10** | Determinism | `HashMap` and `HashSet` are forbidden in core pipelines. Use `BTreeMap`, `BTreeSet`, or `PdfArena`. | Automated grep check |
 | **Rule 11** | Error Transparency | Return typed `thiserror` enums. String-based errors (`Result<T, String>`) are forbidden in core APIs. | Automated grep check |
-| **Rule 13** | Error Swallowing | `filter_map(Result::ok)` and silent error swallowing are forbidden. | Automated grep check |
+| **Rule 13** | Error Swallowing | `filter_map(Result::ok)`, and any `let _ =` over a call that can fail, are forbidden. | Grep, plus `scripts/audit/discarded_results.py` via `verify_compliance.sh`. Detail below |
 | **Rule 14** | Test Code Separation | Standalone/Integration tests MUST be placed in `crates/*/tests/`. Do NOT pollute `src/` with dedicated test files. | Directory structure check |
 | **Rule 15** | Clone Optimization | Avoid excessive `.clone()`. Use `Arc` or handle references where appropriate. | Code review / Density warning |
 | **Rule 16** | Licences | Every dependency's licence must be on `deny.toml`'s allow-list. | `cargo deny check licenses` via `verify_compliance.sh` |
@@ -94,6 +94,20 @@ The throwaway detector used for those sweeps produced two false positives of its
 those where no participant carries a depth, a visited set or a worklist. **Its first run
 found a sixth walk none of the sweeps had**: a Type0 font whose `/DescendantFonts` names
 itself aborted `inspect audit` on five objects.
+
+### Rule 13's other half
+
+`let _ = f();`, where `f` returns a `Result`, is the same swallow as
+`filter_map(Result::ok)` written as a binding, and the grep cannot see it.
+`scripts/audit/discarded_results.py` covers it.
+
+`clippy::let_underscore_must_use` was tried first and is not used. It has the type
+information the script lacks, and reports 97 sites — 86 of them a `write!` into a
+`String`, which cannot fail, or an `mpsc` `send` whose receiver has hung up, which means
+the GUI is closing. A check that is 89% noise is a check nobody reads, so the script
+names those two shapes as benign and requires a written reason for everything else, in
+`ACCOUNTED_FOR`. An entry naming a line that no longer discards anything fails as stale,
+so the list cannot become a permanent exemption.
 
 **It reports one class and counts two others**, because they are different risks:
 

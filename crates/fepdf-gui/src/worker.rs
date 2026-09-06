@@ -286,8 +286,9 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
 
                     if extracted_doc.save_as_version(&temp_path, "1.7").is_ok()
                         && let Ok(exe) = std::env::current_exe()
+                        && let Err(e) = std::process::Command::new(exe).arg(&temp_path).spawn()
                     {
-                        let _ = std::process::Command::new(exe).arg(&temp_path).spawn();
+                        log::warn!("the external viewer would not start: {e}");
                     }
                 }
                 ctx.request_repaint();
@@ -612,11 +613,19 @@ fn handle_update_node(
     tx: &Sender<WorkerResponse>,
 ) {
     let Some(doc) = doc_opt else { return };
-    let _ = doc.apply(fepdf::Operation::UpdateStructElem(fepdf::StructElemUpdate {
+    // Reported, not discarded. The audit below reads the tree as it now stands, so a
+    // failed edit sent the user a fresh set of findings for the *unchanged* document —
+    // the one screen that would have told them the edit did not take was the screen
+    // that showed the old tree as if it were the new one.
+    if let Err(e) = doc.apply(fepdf::Operation::UpdateStructElem(fepdf::StructElemUpdate {
         handle_index: handle_id,
         new_tag: Some(tag),
         new_alt: alt_text,
-    }));
+    })) {
+        let _ =
+            tx.send(WorkerResponse::Error(format!("Failed to update the structure element: {e}")));
+        return;
+    }
 
     // Run Matterhorn compliance audit on updated tree
     let findings = doc

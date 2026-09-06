@@ -180,16 +180,16 @@ impl VelloBackend {
 
         if (glyph.is_fallback || (is_fallback && is_space)) && !ctx.data_ref.is_empty() && gid == 0
         {
-            let _ = system_fonts.get(&state.fallback_type).map(|sys_data| {
+            if let Some(sys_data) = system_fonts.get(&state.fallback_type) {
                 font_data = sys_data;
                 is_fallback = true;
-            });
-        } else if glyph.is_fallback {
-            let _ = system_fonts.get(&state.fallback_type).map(|sys_data| {
-                font_data = sys_data;
-                gid = 0;
-                is_fallback = true;
-            });
+            }
+        } else if glyph.is_fallback
+            && let Some(sys_data) = system_fonts.get(&state.fallback_type)
+        {
+            font_data = sys_data;
+            gid = 0;
+            is_fallback = true;
         }
         (is_cid, is_japanese, font_data, is_fallback, gid)
     }

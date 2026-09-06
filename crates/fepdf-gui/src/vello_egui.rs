@@ -184,7 +184,11 @@ impl VelloRenderer {
         let device = &render_state.device;
         let queue = &render_state.queue;
 
-        let _ = self.renderer.render_to_texture(
+        // A failure here leaves the texture holding the previous frame, so the window
+        // shows a stale page with nothing to say it is stale. A log and not a Decision:
+        // this is the GPU refusing, a fact about the host and not about the document
+        // (AGENTS.md §"a finding about a document is a Decision").
+        if let Err(e) = self.renderer.render_to_texture(
             device,
             queue,
             &viewport_scene,
@@ -201,7 +205,9 @@ impl VelloRenderer {
                 // `AaSupport::all()`, so this is a choice rather than a constraint.
                 antialiasing_method: AaConfig::Area,
             },
-        );
+        ) {
+            log::warn!("the page could not be rendered to its texture: {e}");
+        }
 
         self.last_visible_pages = current_visible_pages;
         self.last_viewport_rect = viewport_rect;
@@ -314,7 +320,7 @@ impl VelloRenderer {
             thumb_scene.append(scene, Some(transform));
 
             let queue = &render_state.queue;
-            let _ = self.thumb_renderer.render_to_texture(
+            if let Err(e) = self.thumb_renderer.render_to_texture(
                 device,
                 queue,
                 &thumb_scene,
@@ -327,7 +333,9 @@ impl VelloRenderer {
                     // window, the thumbnails and the exported image.
                     antialiasing_method: AaConfig::Area,
                 },
-            );
+            ) {
+                log::warn!("page {page_index}'s thumbnail could not be rendered: {e}");
+            }
         }
 
         let frame = self.frame;

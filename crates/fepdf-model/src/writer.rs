@@ -1782,7 +1782,7 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         if assigned.contains(&h) || exclude_objects.contains(&h) {
             return;
         }
-        let _ = reachable.insert(h);
+        reachable.insert(h);
 
         let mut stack = vec![h];
         while let Some(curr_h) = stack.pop() {

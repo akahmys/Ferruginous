@@ -137,3 +137,5 @@ quietly wrong — which is the failure this log exists to make visible.
 | 0070 | [A command that located the structure tree instead of printing it](0070-a-command-that-located-the-tree-instead-of-printing-it.md) | — |
 | 0071 | [What the unreferenced items turned out to be](0071-three-declarations-that-read-nothing-and-one-that-wrote-nothing.md) | Closes 0014, applies 0017 |
 | 0072 | [A page selection nobody could parse meant every page](0072-a-page-selection-nobody-could-parse-meant-every-page.md) | With 0071 |
+| 0073 | [Rule 13's other half, and a type that was a check all along](0073-rule-13s-other-half-and-three-declarations-that-were-checks.md) | Closes 0071's open items |
+| 0074 | [The reader copied the rest of the file once per object](0074-the-reader-copied-the-file-once-per-object.md) | Closes 0071's last item |

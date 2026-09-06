@@ -696,10 +696,10 @@ impl Document {
             (crate::font::FallbackFontType::Monospace, "/System/Library/Fonts/Courier.dfont"),
         ];
         for (ftype, path) in mac_paths {
-            if missing_types.contains(&ftype) {
-                let _ = std::fs::read(path).map(|data| {
-                    fonts.insert(ftype, Arc::new(data));
-                });
+            if missing_types.contains(&ftype)
+                && let Ok(data) = std::fs::read(path)
+            {
+                fonts.insert(ftype, Arc::new(data));
             }
         }
     }
@@ -717,10 +717,10 @@ impl Document {
             (crate::font::FallbackFontType::Monospace, "C:\\Windows\\Fonts\\cour.ttf"),
         ];
         for (ftype, path) in win_paths {
-            if missing_types.contains(&ftype) {
-                let _ = std::fs::read(path).map(|data| {
-                    fonts.insert(ftype, Arc::new(data));
-                });
+            if missing_types.contains(&ftype)
+                && let Ok(data) = std::fs::read(path)
+            {
+                fonts.insert(ftype, Arc::new(data));
             }
         }
     }
@@ -753,10 +753,10 @@ impl Document {
             ),
         ];
         for (ftype, path) in linux_paths {
-            if missing_types.contains(&ftype) {
-                let _ = std::fs::read(path).map(|data| {
-                    fonts.insert(ftype, Arc::new(data));
-                });
+            if missing_types.contains(&ftype)
+                && let Ok(data) = std::fs::read(path)
+            {
+                fonts.insert(ftype, Arc::new(data));
             }
         }
     }
