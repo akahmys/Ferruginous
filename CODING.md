@@ -102,9 +102,11 @@ itself aborted `inspect audit` on five objects.
 `scripts/audit/discarded_results.py` covers it.
 
 `clippy::let_underscore_must_use` was tried first and is not used. It has the type
-information the script lacks, and reports 97 sites — 86 of them a `write!` into a
+information the script lacks, and reports 99 sites — the great majority a `write!` into a
 `String`, which cannot fail, or an `mpsc` `send` whose receiver has hung up, which means
-the GUI is closing. A check that is 89% noise is a check nobody reads, so the script
+the GUI is closing. It was 97 when the script was written; the shape of the ratio is what
+matters, not the count, which is why the script names the two benign forms rather than a
+number. A check that is 89% noise is a check nobody reads, so the script
 names those two shapes as benign and requires a written reason for everything else, in
 `ACCOUNTED_FOR`. An entry naming a line that no longer discards anything fails as stale,
 so the list cannot become a permanent exemption.

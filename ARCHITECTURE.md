@@ -162,17 +162,17 @@ changes that reach them are most of the second.
 | Crate | Status | ~Lines | Responsibility |
 | :--- | :---: | ---: | :--- |
 | **`fepdf-syntax`** | ✅ | 3,377 | The byte layer: lexing and encryption/decryption. Depends on no model type, which is what lets the cryptography be reviewed on its own. Parsing and stream filters are *not* here — see `fepdf-model` below. |
-| **`fepdf-font`** | ✅ (Audited ✅) | 3,740 | Font *programs*: CFF, TrueType, CMap, Adobe Glyph List, subsetting, reconstruction. Hardened against W/W2 out-of-bounds, CMap underflows (`e_val >= s_val`), and CID byte truncations. |
-| **`fepdf-model`** | ✅ | 29,165 | The document graph: `PdfArena`, `Handle<T>`, `Object`, page tree, metadata — and, since Phase A, the reader (7.5) and `writer.rs`. Hardened with pool overflow guards, cyclic `resolve` limits (`64`), and safe `Null` reference fallbacks. |
-| **`fepdf-content`** | ✅ | 3,915 | Content-stream interpreter, and the **`RenderBackend` contract** it drives (`TextGlyph`, `TextState`, `SMaskData`, path geometry). No GPU dependency. |
-| **`fepdf-doc`** | ✅ | 3,744 | Owns the **`Operation` vocabulary** (§4.1) and is its only interpreter: **30** canonical mutation operations. Also structure-tree handling, conformance auditing, remediation. Grew by six when Rule D was enforced and the facade's mutating methods became operations. |
-| **`fepdf-render`** | ✅ | 1,548 | A `RenderBackend` implementation on **Vello** + **wgpu**. Reached only through the facade's optional `render` feature. |
-| **`fepdf`** | ✅ | 1,652 | The public facade: `PdfDocument`, `SaveOptions`, `Operation`. It is the Rule A boundary in fact — frontends depend on it and on nothing below. Lost 167 lines when ten document-mutating methods left for the vocabulary (§4.1); `duplicate_page` and `insert_pages_from` were not passthroughs but arena work, and belonged with the cloner in `fepdf-doc`. |
-| **`fepdf-cli`** | ✅ | 3,027 | Command-line binary (`fepdf`). |
-| **`fepdf-gui`** | ✅ | 8,507 | Desktop application on **egui** + **eframe** + **wgpu**. |
-| **`fepdf-mcp`** | ✅ | 1,902 | Model Context Protocol server for AI assistants. **The most complete frontend by some distance**: all 30 `Operation` variants, where `fepdf-cli` constructs 8 and `fepdf-gui` 6. That is the shape §4.1 predicted — a tool is the serialised form of an operation — arriving on its own. It sat at 24 for a phase, missing exactly the six Rule D produced, because nothing counted; `status.sh` counts them now against the enum itself. |
+| **`fepdf-font`** | ✅ (Audited ✅) | 4,243 | Font *programs*: CFF, TrueType, CMap, Adobe Glyph List, subsetting, reconstruction. Hardened against W/W2 out-of-bounds, CMap underflows (`e_val >= s_val`), and CID byte truncations. |
+| **`fepdf-model`** | ✅ | 31,121 | The document graph: `PdfArena`, `Handle<T>`, `Object`, page tree, metadata — and, since Phase A, the reader (7.5) and `writer.rs`. Hardened with pool overflow guards, cyclic `resolve` limits (`64`), and safe `Null` reference fallbacks. |
+| **`fepdf-content`** | ✅ | 4,491 | Content-stream interpreter, and the **`RenderBackend` contract** it drives (`TextGlyph`, `TextState`, `SMaskData`, path geometry). No GPU dependency. |
+| **`fepdf-doc`** | ✅ | 4,448 | Owns the **`Operation` vocabulary** (§4.1) and is its only interpreter: **30** canonical mutation operations. Also structure-tree handling, conformance auditing, remediation. Grew by six when Rule D was enforced and the facade's mutating methods became operations. |
+| **`fepdf-render`** | ✅ | 1,871 | A `RenderBackend` implementation on **Vello** + **wgpu**. Reached only through the facade's optional `render` feature. |
+| **`fepdf`** | ✅ | 1,782 | The public facade: `PdfDocument`, `SaveOptions`, `Operation`. It is the Rule A boundary in fact — frontends depend on it and on nothing below. Lost 167 lines when ten document-mutating methods left for the vocabulary (§4.1); `duplicate_page` and `insert_pages_from` were not passthroughs but arena work, and belonged with the cloner in `fepdf-doc`. |
+| **`fepdf-cli`** | ✅ | 3,046 | Command-line binary (`fepdf`). |
+| **`fepdf-gui`** | ✅ | 9,617 | Desktop application on **egui** + **eframe** + **wgpu**. |
+| **`fepdf-mcp`** | ✅ | 2,178 | Model Context Protocol server for AI assistants. **The most complete frontend by some distance**: all 30 `Operation` variants, where `fepdf-cli` constructs 8 and `fepdf-gui` 6. That is the shape §4.1 predicted — a tool is the serialised form of an operation — arriving on its own. It sat at 24 for a phase, missing exactly the six Rule D produced, because nothing counted; `status.sh` counts them now against the enum itself. |
 | **`fepdf-wasm`** | ✅ | 63 | WebAssembly bindings, and thin: it opens a document and counts its pages. `render_page` **returns an error** naming what it did not draw — it used to return `Ok(())` having drawn nothing, so a caller was told it succeeded and got a blank canvas. It constructs no `Operation` at all, which is why the §4.1 diagram no longer lists it as a frontend that does. **It does not compile for `wasm32-unknown-unknown`**: `getrandom` arrives through the crypto stack and needs its `js` feature there. ROADMAP Phase Q carries that one. |
-| **`fepdf-script`** | ✅ | 912 | The fifth frontend: ECMAScript (12.6.4.16) on **boa**, translating into `Operation` exactly as the other four translate argv, a button press and a tool call. Depends on the facade and nothing else, so it is **not** wired into `fepdf` behind a feature — that would be a cycle ([ADR-0031](docs/adr/0031-a-script-frontend-cannot-be-a-facade-feature.md)). A caller who does not depend on it links none of the 95 crates boa brings. **ECMA-402 is refused rather than approximated**: a script naming a locale gets an error and a `Decision`. boa's `intl` feature was built and measured before this was settled — it has no `Intl.DateTimeFormat.prototype.format` and no currency style, which are the two things a form asks ECMA-402 for ([ADR-0034](docs/adr/0034-intl-is-declined-for-what-it-does-not-do.md)). |
+| **`fepdf-script`** | ✅ | 923 | The fifth frontend: ECMAScript (12.6.4.16) on **boa**, translating into `Operation` exactly as the other four translate argv, a button press and a tool call. Depends on the facade and nothing else, so it is **not** wired into `fepdf` behind a feature — that would be a cycle ([ADR-0031](docs/adr/0031-a-script-frontend-cannot-be-a-facade-feature.md)). A caller who does not depend on it links none of the 95 crates boa brings. **ECMA-402 is refused rather than approximated**: a script naming a locale gets an error and a `Decision`. boa's `intl` feature was built and measured before this was settled — it has no `Intl.DateTimeFormat.prototype.format` and no currency style, which are the two things a form asks ECMA-402 for ([ADR-0034](docs/adr/0034-intl-is-declined-for-what-it-does-not-do.md)). |
 | **`fepdf-macros`** | ✅ | 183 | Compile-time procedural macros. |
 
 Two `RenderBackend` implementations besides the GPU one — `TextExtractionBackend` and
@@ -388,13 +388,20 @@ of the standard, it records why, at the point of decision, with the clause. A si
 acceptance is a defect even when the output is right, because the next reader of the
 code cannot tell a deliberate choice from an oversight.
 
-**Current coverage is 85 sites**, up from one, re-derived 2026-08-23: `reader.rs` 19,
-`refine/color.rs` 12, `font/mod.rs` 8, `interpreter/ops/xobject.rs` 7, `decrypt.rs` 6,
-`document.rs` 4, `interpreter/ops/color.rs` 4, `fepdf/lib.rs` 3, `optional_content.rs` 3,
-`object/sublimation/parser.rs` 3, `metadata.rs` 2, `ingest/mod.rs` 2,
-`apply/appearance.rs` 2, `interpreter/ops/marked.rs` 2, `interpreter/mod.rs` 2,
-`fepdf-render/text.rs` 1, `fepdf-render/lib.rs` 2, `refine/mod.rs` 1,
-`apply/annotations.rs` 1, `interpreter/ops/text.rs` 1.
+**Current coverage is 107 sites**, up from one, re-derived 2026-09-07: `reader.rs` 19,
+`refine/color.rs` 12, `font/mod.rs` 10, `interpreter/ops/xobject.rs` 8, `fepdf/lib.rs` 6,
+`interpretation.rs` 6, `document.rs` 6, `decrypt.rs` 6, `interpreter/ops/color.rs` 5,
+`object/sublimation/parser.rs` 4, `interpreter/mod.rs` 4, `optional_content.rs` 3,
+`remediation.rs` 2, `metadata.rs` 2, `locale.rs` 2, `interpreter/ops/marked.rs` 2,
+`ingest/mod.rs` 2, `apply/appearance.rs` 2, and one each in `worker.rs`,
+`fepdf-render/text.rs`, `refine/mod.rs` and `interpreter/ops/text.rs`.
+
+Derive it with:
+
+```bash
+grep -rn "Decision::violation(\|Decision::ambiguity(\|Decision::repaired(" \
+    crates/*/src --include='*.rs' | wc -l
+```
 
 **The row that counts them named five crates, and `fepdf-render` was not one.** So when
 the renderer learnt to report a glyph whose outline would not build and a font that never

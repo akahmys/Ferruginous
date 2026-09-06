@@ -29,33 +29,47 @@ All crates in the workspace MUST maintain high test coverage for core data struc
 cargo test --workspace
 ```
 
-**Where the time goes, measured 2026-08-30 — one machine, one load, both forms run back
-to back.** A run with nothing to rebuild is **1m 57s** and reports 591 tests:
+**Where the time goes, re-measured 2026-09-07 — one machine, nothing else running, three
+consecutive runs of each form.** A run with nothing to rebuild is **29 to 35 seconds** and
+reports **754 tests**.
 
-| | |
-| ---: | :--- |
-| 40.6s | `pattern_color_test` — `samples/fy05.pdf` is 846 pages and a debug build takes ~20s to open it. Its two tests share one open now; each opening its own cost 47.2s |
-| 17.6s | `rasteriser_determinism_test` — a page rasterised twice on the host |
-| 9.2s | `fepdf-syntax`'s unit tests |
-| ~5s | everything else, across some fifty test binaries |
-| **25s** | **the doc-test phase, which runs 0 tests** — the difference between the two forms below |
+**This paragraph used to say 1m 57s for 591 tests, and to recommend a shorter form on the
+strength of it.** Both halves stopped being true:
 
-**The doc-test phase is a fifth of a warm run and currently checks nothing.** `rustdoc`
-builds a harness for each of the eleven library crates and finds no examples: no doc
-comment in the workspace carries a ```` ```rust ```` block, because the convention here is
-```` ```text ````. Skipping it runs the same 591 tests in **1m 31s**:
+| | measured 2026-08-30 | measured 2026-09-07 |
+| :--- | ---: | ---: |
+| `cargo test --workspace` | 1m 57s, 591 tests | **29–35s, 754 tests** |
+| `cargo test --workspace --lib --bins --tests` | 1m 31s | 26–33s |
+| the difference — the doc-test phase | **26s, a fifth of the run** | **within run-to-run noise** |
+
+163 more tests in a quarter of the time. The work that did it is
+[ADR-0074](docs/adr/0074-the-reader-copied-the-file-once-per-object.md) (the reader copied
+the file once per object), [ADR-0075](docs/adr/0075-two-costs-a-caller-never-asked-for.md)
+(the arena maintained a reverse index nothing queried) and
+[ADR-0076](docs/adr/0076-what-the-arena-compresses-and-what-that-was-costing.md)
+(compression level). The suite opens documents, so it inherited all three.
+
+**So the short form is no longer worth knowing about.** It was documented because it saved
+a fifth of the run; it now saves nothing measurable, and it still stops guarding doc
+examples. `cargo test --workspace` is the gate and there is no reason to reach past it.
+
+What has not changed is that the doc-test phase checks nothing: `rustdoc` builds a harness
+for each library crate and finds no examples, because no doc comment in the workspace
+carries a ```` ```rust ```` block — the convention here is ```` ```text ````. Verify with:
 
 ```bash
-cargo test --workspace --lib --bins --tests
+grep -rn '```rust' crates/*/src --include='*.rs' | wc -l   # 0
 ```
 
-That is a thing to know rather than a recommendation. **It stops guarding doc examples**,
-and the moment somebody writes a real one the phase starts earning its 25 seconds while
-the short form starts hiding a broken example. `cargo test --workspace` stays the gate.
+**A measurement quoted and not re-derived is the thing this file exists to warn about.**
+This one stood for eight days and was wrong by 4x; `ARCHITECTURE.md`'s crate-size table
+was stale by up to 1,956 lines on the same day. Both are re-derived by a command written
+beside the number.
 
 **A run that has to *build* costs far more than either**: 8m 21s for a change that touched
-`fepdf-render`, against under two minutes of tests. The compile is the cost, not the suite,
-and none of the figures above move that.
+`fepdf-render`, measured 2026-08-30 and not re-derived since. The compile is the cost, not
+the suite — and the gap widened when the suite fell to half a minute, so a change that
+compiles is now roughly fifteen times a warm run rather than four.
 
 ### Key Subsystem Test Suites
 - **`fepdf-model`**:
