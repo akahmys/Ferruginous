@@ -14,7 +14,11 @@ pub struct RotatePagesArgs {
     pub input_path: String,
     /// Path to output PDF file.
     pub output_path: String,
-    /// Selection of pages (e.g. "all", "1", "1-3"). Default: "all".
+    /// Selection of pages, **counting from 1**: "all", "1", "1-3". Default: "all".
+    ///
+    /// One-based, where every `page` field on this surface is zero-based. The two
+    /// bases are real and only this one used to say nothing, so `page_range: "1"` in
+    /// `extract_text` and `pages: "1"` here name different pages.
     pub selection: Option<String>,
     /// Angle to rotate: 90, 180, 270, -90, -180, -270.
     pub angle: i32,
@@ -42,7 +46,10 @@ pub struct RemovePagesArgs {
     pub input_path: String,
     /// Path to output PDF file.
     pub output_path: String,
-    /// Selection of pages to remove (e.g. "1", "1-3").
+    /// Pages to remove, **counting from 1**: "1", "1-3".
+    ///
+    /// One-based, like every `pages`/`selection` string and unlike every `page`
+    /// integer on this surface.
     pub pages: String,
 }
 

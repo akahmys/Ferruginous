@@ -11,6 +11,11 @@
 //! | over the second run | the second run redacted |
 //! | **the whole page** | **the second run only; three of four survived** |
 //!
+//! **The count it reports is what it removed.** `RedactionReport.redacted_count` was
+//! `args.targets.len()` under a field documented "Number of redactions successfully
+//! scrubbed", so a rectangle over empty space was reported to the caller — an agent,
+//! through `fepdf-mcp` — as a redaction that had happened.
+//!
 //! The cause was two counters. `Interpreter::op_index` counts operator tokens and is
 //! incremented before the operator runs, so the four `Tj`s report 4, 9, 14 and 19.
 //! `rewrite_redacted_tokens` counted operators *and* strings and tested a string before
@@ -53,28 +58,31 @@ fn four_runs() -> Vec<u8> {
     ])
 }
 
-fn surviving(rect: [f32; 4]) -> Vec<String> {
+/// What survives a rectangle, and how many the engine says it scrubbed.
+fn surviving(rect: [f32; 4]) -> (Vec<String>, usize) {
     let doc = PdfDocument::open(bytes::Bytes::from(four_runs())).expect("the fixture opens");
-    doc.apply_redaction_to_page(0, &[rect]).expect("redaction runs");
+    let scrubbed = doc.apply_redaction_to_page(0, &[rect]).expect("redaction runs");
     let text = doc.extract_text(0).expect("text comes back");
-    ["AAA", "BBB", "CCC", "DDD"]
+    let left = ["AAA", "BBB", "CCC", "DDD"]
         .into_iter()
         .filter(|w| text.contains(w))
         .map(str::to_string)
-        .collect()
+        .collect();
+    (left, scrubbed)
 }
 
 /// Each run in turn, including the first, which used to be unreachable.
 #[test]
 fn a_rectangle_removes_the_run_under_it_and_no_other() {
     for (word, y) in [("AAA", 700.0_f32), ("BBB", 600.0), ("CCC", 500.0), ("DDD", 400.0)] {
-        let left = surviving([60.0, y - 10.0, 300.0, y + 30.0]);
+        let (left, scrubbed) = surviving([60.0, y - 10.0, 300.0, y + 30.0]);
         let expected: Vec<String> = ["AAA", "BBB", "CCC", "DDD"]
             .into_iter()
             .filter(|w| *w != word)
             .map(str::to_string)
             .collect();
         assert_eq!(left, expected, "redacting {word} must remove {word} and nothing else");
+        assert_eq!(scrubbed, 1, "and must report the one it removed");
     }
 }
 
@@ -84,7 +92,9 @@ fn a_rectangle_removes_the_run_under_it_and_no_other() {
 /// point: they used to intersect in exactly one place, so this left three of four.
 #[test]
 fn a_rectangle_over_the_page_removes_every_run() {
-    assert_eq!(surviving([0.0, 0.0, 612.0, 792.0]), Vec::<String>::new());
+    let (left, scrubbed) = surviving([0.0, 0.0, 612.0, 792.0]);
+    assert_eq!(left, Vec::<String>::new());
+    assert_eq!(scrubbed, 4, "all four are reported, not the one rectangle asked for");
 }
 
 /// A rectangle over nothing leaves the page alone.
@@ -93,7 +103,12 @@ fn a_rectangle_over_the_page_removes_every_run() {
 /// two tests above.
 #[test]
 fn a_rectangle_over_nothing_removes_nothing() {
-    assert_eq!(surviving([0.0, 0.0, 10.0, 10.0]), ["AAA", "BBB", "CCC", "DDD"]);
+    let (left, scrubbed) = surviving([0.0, 0.0, 10.0, 10.0]);
+    assert_eq!(left, ["AAA", "BBB", "CCC", "DDD"]);
+    assert_eq!(
+        scrubbed, 0,
+        "and says nothing was scrubbed — the count is what was removed, not what was asked"
+    );
 }
 
 /// A page the interpreter cannot finish is refused, not reported as redacted.

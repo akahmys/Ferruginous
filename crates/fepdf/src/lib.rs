@@ -1538,8 +1538,12 @@ impl PdfDocument {
         self.inner.catalog().ok()?.lang
     }
 
-    /// Applies physical redaction boxes to a target page.
-    pub fn apply_redaction_to_page(&self, page_idx: usize, rects: &[[f32; 4]]) -> PdfResult<()> {
+    /// Scrubs the strings shown inside `rects` on `page_idx`, and answers how many.
+    ///
+    /// The count is what was removed, not what was asked for: a rectangle over empty
+    /// space answers 0, and a caller that treats "it returned" as "something was
+    /// redacted" is the shape ADR-0064 was written about.
+    pub fn apply_redaction_to_page(&self, page_idx: usize, rects: &[[f32; 4]]) -> PdfResult<usize> {
         apply_physical_redaction_to_page(&self.inner, page_idx, rects)
     }
 

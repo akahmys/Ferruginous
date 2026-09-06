@@ -35,9 +35,13 @@ pub struct RedactionReport {
     pub input_path: String,
     /// Destination path of the sanitized document.
     pub output_path: String,
-    /// Number of redactions successfully scrubbed.
+    /// Number of text-showing operators whose string was scrubbed.
+    ///
+    /// **What was removed, not what was asked for.** This read `args.targets.len()` until
+    /// 2026-09-06, so a rectangle covering nothing was reported to the caller as a
+    /// redaction that had happened — and the caller is an agent.
     pub redacted_count: usize,
-    /// Distinct pages modified.
+    /// Pages where something was actually scrubbed.
     pub affected_pages: Vec<usize>,
 }
 
@@ -59,10 +63,14 @@ fn apply_redaction_internal(args: RedactDocumentArgs) -> McpResult<String> {
     }
 
     let mut affected_pages = Vec::new();
+    let mut scrubbed = 0;
     for (page_idx, rects) in &page_map {
-        fepdf::apply_physical_redaction_to_page(doc.inner(), *page_idx, rects)
+        let removed = fepdf::apply_physical_redaction_to_page(doc.inner(), *page_idx, rects)
             .map_err(|e| McpError::Pdf(format!("Redaction on page {page_idx} failed: {e:?}")))?;
-        affected_pages.push(*page_idx);
+        scrubbed += removed;
+        if removed > 0 {
+            affected_pages.push(*page_idx);
+        }
     }
 
     let out_path = Path::new(&args.output_path);
@@ -72,7 +80,7 @@ fn apply_redaction_internal(args: RedactDocumentArgs) -> McpResult<String> {
     let report = RedactionReport {
         input_path: args.input_path,
         output_path: args.output_path,
-        redacted_count: args.targets.len(),
+        redacted_count: scrubbed,
         affected_pages,
     };
 

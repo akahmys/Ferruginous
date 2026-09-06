@@ -15,7 +15,7 @@ pub struct AddPageDecorationArgs {
     pub input_path: String,
     /// Path to output PDF file.
     pub output_path: String,
-    /// Selection of pages (e.g. "all", "1", "1-3"). Default: "all".
+    /// Selection of pages, **counting from 1**: "all", "1", "1-3". Default: "all".
     pub pages: Option<String>,
     /// Text to render.
     pub text: String,
@@ -33,7 +33,7 @@ pub struct ApplyBatesNumberingArgs {
     pub input_path: String,
     /// Path to output PDF file.
     pub output_path: String,
-    /// Selection of pages (e.g. "all", "1-5"). Default: "all".
+    /// Selection of pages, **counting from 1**: "all", "1-5". Default: "all".
     pub pages: Option<String>,
     /// Prefix string (e.g. "CONFIDENTIAL-").
     pub prefix: Option<String>,

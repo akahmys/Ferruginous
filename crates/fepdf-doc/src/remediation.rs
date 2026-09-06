@@ -1090,14 +1090,19 @@ impl HeuristicEngine {
     }
 }
 
-/// Physically scrubs content streams inside specified redaction rectangles on a page (Atomic Redaction).
+/// Physically scrubs the strings shown inside `redacted_rects`, and answers how many.
+///
+/// **The count is what was scrubbed, not what was asked for.** `RedactionReport` used to
+/// report `args.targets.len()` under a field documented as "Number of redactions
+/// successfully scrubbed", so a rectangle that covered nothing was reported to the caller
+/// — an agent, through `fepdf-mcp` — as a redaction that had happened.
 pub fn apply_physical_redaction_to_page(
     doc: &Document,
     page_index: usize,
     redacted_rects: &[[f32; 4]],
-) -> PdfResult<()> {
+) -> PdfResult<usize> {
     if redacted_rects.is_empty() {
-        return Ok(());
+        return Ok(0);
     }
 
     let page = doc.get_page(page_index)?;
@@ -1130,7 +1135,7 @@ pub fn apply_physical_redaction_to_page(
             HeuristicEngine::collect_redacted_op_indices(&collector.spans, redacted_rects);
 
         if redacted_op_indices.is_empty() {
-            return Ok(());
+            return Ok(0);
         }
 
         // 3. Rewrite content stream tokens to scrub redacted string values
@@ -1149,9 +1154,10 @@ pub fn apply_physical_redaction_to_page(
         let mut updated_dict = arena.get_dict(page_dh).unwrap_or_default();
         updated_dict.insert(arena.name("Contents"), Object::Reference(new_contents));
         arena.set_dict(page_dh, updated_dict);
+        return Ok(redacted_op_indices.len());
     }
 
-    Ok(())
+    Ok(0)
 }
 
 fn decode_page_contents(doc: &Document, contents: &Object) -> PdfResult<bytes::Bytes> {

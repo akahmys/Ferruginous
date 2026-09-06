@@ -42,7 +42,7 @@ pub struct DuplicatePagesArgs {
     pub input_path: String,
     /// Path to output PDF file.
     pub output_path: String,
-    /// Selection of pages to duplicate (e.g. "all", "2", "1-3").
+    /// Pages to duplicate, **counting from 1**: "all", "2", "1-3".
     pub pages: String,
 }
 
