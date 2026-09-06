@@ -100,10 +100,61 @@ fn test_upgrade_to_standard() {
 
 #[test]
 fn test_heuristic_retag_execution() {
-    let data = get_minimal_pdf();
-    let mut doc = PdfDocument::open(data).unwrap();
-    let res = doc.apply(Operation::Retag);
-    assert!(res.is_ok());
+    // A page with a large line above a small one, which is the shape the heuristic reads
+    // as a heading over body text.
+    let data = assemble(
+        &[
+            "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R \
+              /Resources << /Font << /F1 5 0 R >> >> >>"
+                .to_string(),
+            {
+                // One large line over several small ones. The heuristic takes the *most
+                // common* size as the body, so a page of two lines would make the larger
+                // one the body on a tie — this is the shape a real page has.
+                let mut body = String::from("BT /F1 24 Tf 72 700 Td (Chapter One) Tj ET\n");
+                for line in 0..6 {
+                    let y = 660 - line * 20;
+                    let _ = writeln!(
+                        body,
+                        "BT /F1 10 Tf 72 {y} Td (Body line {line} of the chapter.) Tj ET"
+                    );
+                }
+                format!("<< /Length {} >>\nstream\n{body}endstream", body.len())
+            },
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+        ],
+        1,
+    );
+
+    let mut doc = PdfDocument::open(data).expect("the fixture opens");
+    assert!(
+        doc.extract_struct_tree().is_none(),
+        "the fixture starts untagged, or this proves nothing"
+    );
+
+    doc.apply(Operation::Retag).expect("retagging runs");
+
+    let tree = doc.extract_struct_tree().expect("Retag left the document untagged");
+    assert!(
+        !tree.children.is_empty(),
+        "Retag left the document with no structure tree at all: {tree:?}"
+    );
+
+    // The tags it chose, flattened, so this says what was inferred and not merely that
+    // something was.
+    let mut tags = Vec::new();
+    let mut stack = vec![&tree];
+    while let Some(node) = stack.pop() {
+        tags.push(node.tag.clone());
+        stack.extend(node.children.iter());
+    }
+    assert!(
+        tags.iter().any(|t| t.starts_with('H')),
+        "the larger line should have become a heading: {tags:?}"
+    );
+    assert!(tags.iter().any(|t| t == "P"), "and the smaller one a paragraph: {tags:?}");
 }
 
 #[test]
