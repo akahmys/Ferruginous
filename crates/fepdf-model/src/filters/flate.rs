@@ -49,11 +49,28 @@ impl DecodingFilter for FlateFilter {
 /// beside the filter because the codec is the same one, and because a second compression
 /// crate is what made the engine depend on C.
 ///
+/// **Level 1, not the default 6, and the difference was measured.** Because this runs
+/// during `Document::open` on every stream over 4 KB, its cost is paid by every read
+/// whether or not the memory is ever wanted. On `samples/intel_sdm.pdf` (24 MB, 5,057
+/// pages, 3,154 streams compressed), `inspect info` steady-state:
+///
+/// | level | time | held back |
+/// | --- | ---: | ---: |
+/// | 6 (`default`) | 1.97 s | 18,563 KB |
+/// | 3 | 1.76 s | 18,256 KB |
+/// | **1 (`fast`)** | **1.67 s** | **17,916 KB** |
+/// | not compressing at all | 1.62 s | 0 |
+///
+/// Level 1 keeps 96.5% of what level 6 holds back for 14% of what it costs. The trade
+/// this makes is worth having — the last row is what removing it would buy, and 18 MB of
+/// a document's streams is not nothing — but paying six-level compression for the last
+/// 3.5% of it, on every open, was not.
+///
 /// # Errors
 /// Fails only when the encoder does, which for an in-memory writer means allocation.
 pub fn deflate(input: &[u8]) -> std::io::Result<Vec<u8>> {
     use std::io::Write as _;
-    let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+    let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::fast());
     encoder.write_all(input)?;
     encoder.finish()
 }
