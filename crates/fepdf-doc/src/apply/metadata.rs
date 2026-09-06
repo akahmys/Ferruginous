@@ -5,9 +5,9 @@ use crate::operation::{
     OutlineTree, OutputIntent, PortfolioCollection, VisibilityState,
 };
 use bytes::Bytes;
+use fepdf_model::DictHandle;
 use fepdf_model::arena::PdfArena;
 use fepdf_model::object::SublimatedData;
-use fepdf_model::reader::DictHandle;
 use fepdf_model::{Document, Handle, Object, PdfError, PdfResult};
 use std::collections::BTreeMap;
 use std::sync::Arc;

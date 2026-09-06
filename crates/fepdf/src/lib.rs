@@ -1585,11 +1585,6 @@ impl PdfDocument {
         signatures
     }
 
-    /// Returns a list of all fonts embedded or referenced in the document.
-    pub fn get_embedded_fonts(&self) -> Vec<FontSummary> {
-        self.inner.fonts()
-    }
-
     /// Renders a specific page to an image file, detecting format from extension.
     ///
     /// Requires the `render` feature, which pulls in the Vello + wgpu stack.

@@ -1628,12 +1628,6 @@ impl FontResource {
         Some(map)
     }
 
-    /// Whether any character-to-Unicode mapping is available at all.
-    pub fn has_any_mapping(&self) -> bool {
-        (self.to_unicode.as_ref().map(|m| !m.mappings.is_empty()).unwrap_or(false))
-            || (self.encoding.as_ref().map(|m| !m.mappings.is_empty()).unwrap_or(false))
-    }
-
     /// Performs heuristic recovery of Unicode mappings if they are missing or broken.
     pub fn rescue_unicode_map(&mut self) {
         if self.to_unicode.is_some() {
@@ -2230,11 +2224,6 @@ impl FontResource {
             return false;
         }
         true
-    }
-
-    /// Returns true if the font name suggests it is a subsetted font (e.g., "ABCDEF+Arial").
-    pub fn is_subsetted(&self) -> bool {
-        self.base_font.as_str().contains('+')
     }
 
     /// Returns true if the font is embedded in the PDF and has been successfully reconstructed for rendering.
@@ -2834,7 +2823,7 @@ fn extract_font_summary(
     } else {
         check_font_embedding(arena, dict, fv)
     };
-    let is_subset = name.len() > 7 && name.as_bytes().get(6).copied() == Some(b'+');
+    let is_subset = fepdf_font::subset::subset_tag(&name).is_some();
     let has_to_unicode = dict.contains_key(&arena.name("ToUnicode"));
 
     Some(FontSummary {
@@ -2962,21 +2951,6 @@ fn check_font_embedding_at(
         }
     }
     false
-}
-
-/// Maps a glyph name to its CFF standard string identifier, if it has one.
-pub fn glyph_name_to_sid(name: &str) -> Option<u16> {
-    static MAP: std::sync::OnceLock<BTreeMap<&'static str, u16>> = std::sync::OnceLock::new();
-    let m = MAP.get_or_init(|| {
-        let mut m = BTreeMap::new();
-        for (i, &name) in cff_standard::CFF_STANDARD_STRINGS.iter().enumerate() {
-            m.entry(name).or_insert(i as u16);
-        }
-        m
-    });
-
-    let clean_name = name.strip_prefix('/').unwrap_or(name);
-    m.get(clean_name).copied()
 }
 
 #[cfg(feature = "debug-tools")]

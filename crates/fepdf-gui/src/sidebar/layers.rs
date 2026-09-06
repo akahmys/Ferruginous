@@ -21,30 +21,10 @@ use crate::locale::LocaleManager;
 use crate::worker::WorkerRequest;
 use std::sync::mpsc::Sender;
 
-/// Draws the layer panel.
-// RR-15 Limit: GUI - egui layout tree for a nested, checkable list
-#[allow(dead_code)]
-pub fn show_layers(
-    ui: &mut egui::Ui,
-    layers: &[fepdf::LayerRow],
-    tx_worker: &Sender<WorkerRequest>,
-    locale_mgr: &LocaleManager,
-    active_lang: &str,
-) {
-    ui.heading(locale_mgr.tr(active_lang, "tab_layers"));
-    ui.separator();
-
-    if layers.is_empty() {
-        ui.add_space(4.0);
-        ui.label(locale_mgr.tr(active_lang, "layers_none"));
-        return;
-    }
-
-    egui::ScrollArea::vertical().show(ui, |ui| {
-        show_rows(ui, layers, tx_worker, locale_mgr, active_lang);
-    });
-}
-
+/// Draws one level of `/Order`, recursing into the arrays nested inside it.
+///
+/// The caller decides whether the panel appears at all: `document_info` omits the whole
+/// section when there are no layers, rather than showing a heading over an empty list.
 pub fn show_rows(
     ui: &mut egui::Ui,
     rows: &[fepdf::LayerRow],

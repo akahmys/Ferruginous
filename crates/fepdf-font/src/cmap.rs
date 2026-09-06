@@ -152,11 +152,6 @@ impl CMap {
             || self.codespace_ranges.iter().any(|(s, _)| s.len() >= 2)
     }
 
-    /// Like [`CMap::decode_next`], but refuses codes outside a codespace range.
-    pub fn decode_next_strict(&self, data: &[u8]) -> Option<(usize, Option<String>)> {
-        self.decode_next_with_min_len(data, None)
-    }
-
     /// Decodes the next code, never consuming fewer than `min_len` bytes.
     pub fn decode_next_with_min_len(
         &self,

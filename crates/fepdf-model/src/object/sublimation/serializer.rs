@@ -363,23 +363,6 @@ fn escape_pdf_string(data: &[u8]) -> Vec<u8> {
     escaped
 }
 
-/// Serializes an image back into a compressed PDF stream.
-pub fn serialize_image(
-    _width: u32,
-    _height: u32,
-    _format: crate::graphics::PixelFormat,
-    data: &[u8],
-) -> crate::error::PdfResult<(Vec<u8>, Vec<String>)> {
-    // For now, use FlateDecode (lossless) as the default.
-    // In a full implementation, we would check the format and potentially use DCTDecode for JPEG.
-    let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
-    use std::io::Write;
-    encoder.write_all(data)?;
-    let compressed = encoder.finish()?;
-
-    Ok((compressed, vec!["FlateDecode".to_string()]))
-}
-
 #[cfg(test)]
 mod clipping {
     //! `W` and `W*` set a clip; they do not end the path. Emitting the `n` for them

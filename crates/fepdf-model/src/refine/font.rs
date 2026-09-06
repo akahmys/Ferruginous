@@ -1,7 +1,6 @@
 use super::RefinedObject;
 use crate::font::FontResource;
 use crate::object::PdfName;
-use bytes::Bytes;
 use std::collections::BTreeMap;
 
 /// Normalizes a font dictionary to a canonical PDF 2.0 form.
@@ -63,9 +62,4 @@ fn normalize_type0_font(dict: &mut BTreeMap<PdfName, RefinedObject>, resource: &
     // `CIDToGIDMap /Identity`, no `/ToUnicode`, and text a reader cannot otherwise
     // recover. Without such a file this is a guess, and the guess was measured wrong.
     let _ = resource;
-}
-
-/// Normalizes a CMap stream to a canonical PDF 2.0 form.
-pub fn normalize_cmap(dict: BTreeMap<PdfName, RefinedObject>, data: Bytes) -> RefinedObject {
-    RefinedObject::Stream(dict, data)
 }

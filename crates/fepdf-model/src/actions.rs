@@ -32,12 +32,11 @@ use crate::arena::PdfArena;
 use crate::document::Document;
 use crate::document::entries::{DocumentRequirements, Requirement};
 use crate::error::PdfResult;
-use crate::handle::Handle;
-use crate::object::{Object, PdfName};
+use crate::object::Object;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-type Dict = BTreeMap<Handle<PdfName>, Object>;
+use crate::access::Dict;
 
 /// How far a `/Next` chain, a page tree or a field tree is followed before it is assumed
 /// to be looping. The same bound the other walks in this crate use, for the same reason.

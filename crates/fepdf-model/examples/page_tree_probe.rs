@@ -83,7 +83,7 @@ fn reference(arena: &PdfArena, dict: &reader_dict::Map, key: &str) -> Option<Han
 /// Spellings for the dictionary types, which are otherwise unwieldy.
 mod reader_dict {
     /// A handle to a dictionary in the arena.
-    pub type Handle = fepdf_model::reader::DictHandle;
+    pub type Handle = fepdf_model::DictHandle;
     /// A dictionary read out of the arena.
     pub type Map = std::collections::BTreeMap<
         fepdf_model::handle::Handle<fepdf_model::object::PdfName>,

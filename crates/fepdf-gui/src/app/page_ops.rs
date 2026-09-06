@@ -160,20 +160,6 @@ impl FepdfApp {
     }
 
     #[allow(dead_code)]
-    pub fn duplicate_selected_pages(&mut self) {
-        if self.selected_pages.is_empty() {
-            if self.total_pages > 0 && self.view.active_page < self.total_pages {
-                self.duplicate_page(self.view.active_page);
-            }
-            return;
-        }
-        let targets: Vec<usize> = self.selected_pages.iter().copied().collect();
-        for &idx in targets.iter().rev() {
-            self.duplicate_page(idx);
-        }
-    }
-
-    #[allow(dead_code)]
     pub fn remove_selected_pages(&mut self) {
         if self.selected_pages.is_empty() || self.total_pages <= 1 {
             return;

@@ -3,9 +3,10 @@
 use crate::Document;
 use crate::arena::PdfArena;
 use crate::font::FontResource;
+use crate::handle::DictHandle;
 use crate::handle::Handle;
 use crate::object::Object;
-use crate::reader::{DictHandle, RawDocument};
+use crate::reader::RawDocument;
 use crate::refine::{ParallelRefinery, RefineContext};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -260,7 +261,7 @@ impl Ingestor {
             if let Some(_dict) = arena.get_dict(Handle::new(*h_idx)) {
                 global_font_registry.insert(format!("obj_{h_idx}"), font_res.clone());
                 let base_name = font_res.base_font.as_str();
-                let is_subset = base_name.len() > 7 && base_name.as_bytes()[6] == b'+';
+                let is_subset = fepdf_font::subset::subset_tag(base_name).is_some();
                 let is_component_cid = font_res.subtype.as_str() == "CIDFontType0"
                     || font_res.subtype.as_str() == "CIDFontType2";
 

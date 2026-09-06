@@ -79,7 +79,7 @@ pub use graphics::{
     AxialShading, BlendMode, Color, ColorStop, LineCap, LineJoin, Matrix, Paint, PatternSpec,
     PixelFormat, RadialShading, ShadingSpec, StrokeStyle, WindingRule,
 };
-pub use handle::Handle;
+pub use handle::{DictHandle, Handle};
 pub use ingest::Ingestor;
 pub use object::{FromPdfObject, Object, PdfName, PdfSchema, Reference, SublimatedData};
 

@@ -35,9 +35,9 @@ use crate::interpretation::Decision;
 use crate::object::{FromPdfObject, Object, PdfName};
 use fepdf_macros::FromPdfObject;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
-type Dict = BTreeMap<Handle<PdfName>, Object>;
+use crate::access::Dict;
 
 /// How many nodes of a `/VE` expression are visited before it is assumed to be looping.
 ///

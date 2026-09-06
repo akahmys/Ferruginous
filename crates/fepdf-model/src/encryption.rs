@@ -10,9 +10,10 @@ use crate::access::{self, Dict};
 use crate::arena::PdfArena;
 use crate::decrypt;
 use crate::error::{PdfError, PdfResult};
+use crate::handle::DictHandle;
 use crate::interpretation::Decision;
 use crate::object::Object;
-use crate::reader::{self, DictHandle};
+use crate::reader;
 use serde::{Deserialize, Serialize};
 
 /// How far the engine conforms in handling a given security handler.

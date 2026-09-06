@@ -7,7 +7,7 @@ use crate::object::Object;
 use bytes::Bytes;
 
 /// An object dictionary, spelt out because the type is otherwise unwieldy.
-type Dict = std::collections::BTreeMap<crate::handle::Handle<crate::object::PdfName>, Object>;
+use crate::access::Dict;
 
 pub mod ascii;
 pub(crate) mod bilevel;

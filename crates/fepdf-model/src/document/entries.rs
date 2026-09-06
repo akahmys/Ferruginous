@@ -43,9 +43,8 @@ use crate::handle::Handle;
 use crate::object::{FromPdfObject, Object, PdfName};
 use fepdf_macros::FromPdfObject;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 
-type Dict = BTreeMap<Handle<PdfName>, Object>;
+use crate::access::Dict;
 
 /// `/MarkInfo` (14.7.1, Table 321): whether the document is tagged.
 ///
@@ -933,6 +932,7 @@ fn text_at(arena: &PdfArena, dict: &Dict, key: &str) -> Option<String> {
 mod tests {
     use super::*;
     use crate::object::PdfSchema;
+    use std::collections::BTreeMap;
 
     /// One object, written the way a file writes it. Parsed rather than built by hand,
     /// so the test exercises the same path a document takes.

@@ -301,11 +301,6 @@ impl Object {
         if let Self::Boolean(b) = self { Some(*b) } else { None }
     }
 
-    /// Whether this object is a stream.
-    pub fn is_stream(&self) -> bool {
-        matches!(self, Self::Stream(_, _))
-    }
-
     /// The dictionary handle, for a dictionary or a stream.
     pub fn as_dict_handle(&self) -> Option<Handle<BTreeMap<Handle<PdfName>, Object>>> {
         match self {

@@ -260,11 +260,6 @@ fn parse_and_write_dates(info: &BTreeMap<PdfName, RefinedObject>, writer: &mut X
     writer.metadata_date(final_modify);
 }
 
-/// Renders an `/Info` dictionary as an XMP packet.
-pub fn info_to_xmp(info: &BTreeMap<PdfName, RefinedObject>) -> String {
-    info_to_xmp_derived(info, &crate::document::Provenance::default())
-}
-
 /// Renders the packet, recording what the document was derived from.
 ///
 /// Saving produces a new document, not an edited one (ADR-0012): the arena already

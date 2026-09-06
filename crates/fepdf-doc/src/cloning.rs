@@ -1,8 +1,4 @@
-use fepdf_model::{Handle, Object, PdfArena, PdfName, PdfResult};
-use std::collections::BTreeMap as Dict;
-
-/// What the arena calls a dictionary handle, which is otherwise three lines wide.
-type DictHandle = Handle<Dict<Handle<PdfName>, Object>>;
+use fepdf_model::{DictHandle, Handle, Object, PdfArena, PdfResult};
 use std::collections::BTreeMap;
 
 /// Utility for cloning PDF objects and migrating them between arenas or contexts.

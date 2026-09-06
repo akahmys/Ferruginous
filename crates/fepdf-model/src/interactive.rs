@@ -30,8 +30,8 @@
 use crate::arena::PdfArena;
 use crate::decrypt::Credentials;
 use crate::destination::{Lookup, NamedDestinations};
-use crate::document::DictHandle;
 use crate::error::{PdfError, PdfResult};
+use crate::handle::DictHandle;
 use crate::object::{FromPdfObject, Object};
 use crate::reader;
 use serde::{Deserialize, Serialize};
@@ -388,7 +388,7 @@ impl InteractiveReport {
     }
 }
 
-type Dict = BTreeMap<crate::handle::Handle<crate::object::PdfName>, Object>;
+use crate::access::Dict;
 
 /// What the three walks accumulate as they go.
 ///

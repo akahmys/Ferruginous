@@ -1,36 +1,32 @@
 //! Theme, typography, and visual styling for `fepdf-gui`.
 
-#[allow(dead_code)]
+/// The palette, with no `#[allow(dead_code)]` over it.
+///
+/// A colour nobody paints with is a leftover, not a design decision, and the allow that
+/// used to sit here hid eight of them — including `CARD_BG`, which was `PANEL_BG` under a
+/// second name, and a `RUST_BADGE_*` triple for a badge that was never drawn.
 pub mod colors {
     use egui::Color32;
 
     // --- 1. Base / White & Off-white Surfaces ---
     pub const CANVAS_BG: Color32 = Color32::from_rgb(244, 245, 247);
     pub const PANEL_BG: Color32 = Color32::from_rgb(255, 255, 255);
-    pub const CARD_BG: Color32 = Color32::from_rgb(255, 255, 255);
     pub const SURFACE_HOVER: Color32 = Color32::from_rgb(241, 245, 249);
     pub const SURFACE_ACTIVE: Color32 = Color32::from_rgb(226, 232, 240);
 
     // --- 2. Steel / Slate Structure & Typography ---
     pub const STEEL_PRIMARY: Color32 = Color32::from_rgb(30, 41, 59);
     pub const STEEL_SECONDARY: Color32 = Color32::from_rgb(71, 85, 105);
-    pub const STEEL_MUTED: Color32 = Color32::from_rgb(148, 163, 184);
     pub const STEEL_BORDER: Color32 = Color32::from_rgb(203, 213, 225);
     pub const STEEL_BORDER_SUBTLE: Color32 = Color32::from_rgb(226, 232, 240);
 
     // --- 3. Deep Rust / Terracotta Accents ---
     pub const RUST_PRIMARY: Color32 = Color32::from_rgb(148, 56, 32);
-    pub const RUST_HOVER: Color32 = Color32::from_rgb(176, 71, 43);
-    pub const RUST_DEEP: Color32 = Color32::from_rgb(110, 38, 19);
     pub const RUST_SELECTION_BG: Color32 = Color32::from_rgba_premultiplied(21, 8, 5, 36);
-    pub const RUST_BADGE_BG: Color32 = Color32::from_rgb(248, 239, 234);
-    pub const RUST_BADGE_TEXT: Color32 = Color32::from_rgb(125, 45, 24);
-    pub const RUST_BADGE_BORDER: Color32 = Color32::from_rgb(235, 214, 207);
 
     // --- 4. Semantic Status Badges ---
     pub const STATUS_WARN_BG: Color32 = Color32::from_rgb(254, 243, 199);
     pub const STATUS_WARN_TEXT: Color32 = Color32::from_rgb(146, 64, 14);
-    pub const STATUS_PASS_BG: Color32 = Color32::from_rgb(236, 253, 245);
     pub const STATUS_PASS_TEXT: Color32 = Color32::from_rgb(21, 128, 61);
     pub const STATUS_INFO_BG: Color32 = Color32::from_rgb(240, 249, 255);
     pub const STATUS_INFO_TEXT: Color32 = Color32::from_rgb(3, 105, 161);

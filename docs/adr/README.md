@@ -135,3 +135,5 @@ quietly wrong — which is the failure this log exists to make visible.
 | 0068 | [A suite that skipped itself in silence and asserted nothing when it ran](0068-a-suite-that-skipped-itself-and-asserted-nothing.md) | Covers 0064 |
 | 0069 | [Two things the file said that nothing read](0069-two-things-the-file-said-that-nothing-read.md) | With 0065 |
 | 0070 | [A command that located the structure tree instead of printing it](0070-a-command-that-located-the-tree-instead-of-printing-it.md) | — |
+| 0071 | [What the unreferenced items turned out to be](0071-three-declarations-that-read-nothing-and-one-that-wrote-nothing.md) | Closes 0014, applies 0017 |
+| 0072 | [A page selection nobody could parse meant every page](0072-a-page-selection-nobody-could-parse-meant-every-page.md) | With 0071 |

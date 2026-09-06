@@ -8,6 +8,7 @@
 
 use crate::arena::PdfArena;
 use crate::error::{PdfError, PdfResult};
+use crate::handle::DictHandle;
 use crate::handle::Handle;
 use crate::interpretation::{Decision, DecisionLog};
 use crate::object::{Object, SublimatedData};
@@ -272,9 +273,6 @@ pub struct RawDocument {
     /// because reading that index needs the decryption that has not happened yet.
     pub deferred_object_streams: Vec<(u32, u32)>,
 }
-
-/// A handle to a dictionary, spelt out because the type is otherwise unwieldy.
-pub type DictHandle = Handle<BTreeMap<Handle<crate::object::PdfName>, Object>>;
 
 /// Reads a whole document: sections, objects, object streams, trailer.
 ///

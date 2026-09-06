@@ -28,13 +28,12 @@
 
 mod postscript;
 
+use crate::PdfArena;
 use crate::object::{Object, PdfName};
-use crate::{Handle, PdfArena};
 use bytes::Bytes;
 pub use postscript::PostScriptFunction;
-use std::collections::BTreeMap;
 
-type Dict = BTreeMap<Handle<PdfName>, Object>;
+use crate::access::Dict;
 
 /// How deep `/Functions` may nest before parsing gives up (RR-15 Rule 6: no unbounded
 /// recursion). A stitching function containing stitching functions is legal and rare;

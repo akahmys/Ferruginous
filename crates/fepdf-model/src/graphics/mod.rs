@@ -390,12 +390,6 @@ impl Matrix {
         let res = self.as_affine() * other.as_affine();
         Self(res.as_coeffs())
     }
-
-    /// Returns `other` followed by `self`.
-    pub fn pre_concat(&self, other: &Self) -> Self {
-        let res = other.as_affine() * self.as_affine();
-        Self(res.as_coeffs())
-    }
 }
 
 /// A simple axis-aligned rectangle (ISO 32000-2 Clause 7.3.6)

@@ -52,10 +52,6 @@ GUARDED_ELSEWHERE: dict[tuple[str, str], str] = {
     ("crates/fepdf-doc/src/cloning.rs", "walk"): _PARSER_BOUNDED,
     ("crates/fepdf-model/src/decrypt.rs", "decrypt_value"): _PARSER_BOUNDED,
     ("crates/fepdf-model/src/writer.rs", "write_object"): _PARSER_BOUNDED,
-    ("crates/fepdf-model/src/document.rs", "build_virtual_balanced_view"): (
-        "each level divides the slice by max_kids, so the depth is logarithmic in the "
-        "page count; at max_kids 1 every chunk is already Flat"
-    ),
 }
 
 KEYWORDS = {

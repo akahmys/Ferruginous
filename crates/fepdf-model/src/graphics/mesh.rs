@@ -18,15 +18,14 @@
 //! a [`crate::color::ResolvedColorSpace`] (8.6), so a mesh over a `/Separation` runs its
 //! tint transform per vertex without this module knowing what a separation is.
 
+use crate::PdfArena;
 use crate::color::ResolvedColorSpace;
 use crate::function::FunctionSet;
 use crate::graphics::Color;
 use crate::object::{Object, PdfName};
-use crate::{Handle, PdfArena};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 
-type Dict = BTreeMap<Handle<PdfName>, Object>;
+use crate::access::Dict;
 
 /// How finely a patch surface is sampled, per side. 8.7.4.5.7 patches are bicubic, so a
 /// grid this size reproduces the curvature well inside a pixel at ordinary page scales

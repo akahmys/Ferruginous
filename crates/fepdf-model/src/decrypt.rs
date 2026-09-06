@@ -11,10 +11,10 @@
 use crate::access::{self, Dict};
 use crate::arena::PdfArena;
 use crate::error::PdfResult;
+use crate::handle::DictHandle;
 use crate::handle::Handle;
 use crate::interpretation::{Decision, DecisionLog};
 use crate::object::{Object, SublimatedData};
-use crate::reader::DictHandle;
 use bytes::Bytes;
 use fepdf_syntax::security::{Access, AesV5Spec, Cipher, SecurityHandler, StandardSpec};
 use std::collections::BTreeMap;

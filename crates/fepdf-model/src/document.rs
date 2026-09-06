@@ -1,18 +1,15 @@
-pub mod conformance;
 /// ISO 32000-2 Extended domain models.
 /// What the catalogue's entries hold (Table 29), read.
 pub mod entries;
 pub mod extensions;
 /// Pages and the page tree.
 pub mod page;
-/// Page-tree traversal strategies.
-pub mod strategy;
 pub mod structure;
 
 use self::page::Page;
-pub use self::strategy::{PageTreeStrategy, PageTreeView};
 use crate::error::PdfError;
 use crate::font::{FallbackFontType, FontResource};
+use crate::handle::DictHandle;
 use crate::{FromPdfObject, Handle, Object, PdfArena, PdfName, PdfResult};
 use parking_lot::RwLock;
 use std::collections::{BTreeMap, BTreeSet};
@@ -449,8 +446,6 @@ fn named(obj: &Object, arena: &PdfArena) -> PdfResult<String> {
         .ok_or_else(|| crate::PdfError::Parse { pos: 0, message: "expected a name".into() })
 }
 
-/// Type alias for a dictionary handle to satisfy clippy complexity rules.
-pub type DictHandle = Handle<BTreeMap<Handle<PdfName>, Object>>;
 type FontGroupMap = BTreeMap<(String, String), Vec<DictHandle>>;
 type BestToUnicodeMap = BTreeMap<(String, String), Object>;
 
@@ -1106,28 +1101,6 @@ impl Document {
         Ok(())
     }
 
-    /// Returns an on-demand, read-only virtual structured view of the pages tree.
-    pub fn get_page_tree_view(&self, strategy: PageTreeStrategy) -> PageTreeView<'_> {
-        match strategy {
-            PageTreeStrategy::Flat => PageTreeView::Flat(&self.pages),
-            PageTreeStrategy::Balanced { max_kids } => {
-                Self::build_virtual_balanced_view(&self.pages, max_kids)
-            }
-        }
-    }
-
-    fn build_virtual_balanced_view(pages: &[Handle<Object>], max_kids: usize) -> PageTreeView<'_> {
-        if pages.len() <= max_kids {
-            PageTreeView::Flat(pages)
-        } else {
-            let mut nodes = Vec::new();
-            for chunk in pages.chunks(max_kids) {
-                nodes.push(Self::build_virtual_balanced_view(chunk, max_kids));
-            }
-            PageTreeView::Balanced { max_kids, nodes }
-        }
-    }
-
     /// Retrieves the parent Pages node chain from a leaf Page node up to the root.
     pub fn get_parent_chain(&self, page_h: Handle<Object>) -> Vec<Handle<Object>> {
         let mut chain = Vec::new();
@@ -1322,42 +1295,6 @@ impl Document {
             return 1;
         }
         0
-    }
-
-    /// Returns high-level compliance information about the document.
-    ///
-    /// A catalogue that will not read as Table 29 yields the default rather than an
-    /// error. "This document does not say it is tagged" is what a catalogue nobody can
-    /// read amounts to, and the failure itself is already reported — `audit/compliance.rs`
-    /// parses the same catalogue and records what stopped it as an issue, with the entry
-    /// named. No `Decision` is raised here: a decision site in a method nothing calls
-    /// would inflate the count in `status.sh` with something that can never fire.
-    pub fn compliance_info(&self) -> PdfResult<conformance::ComplianceInfo> {
-        let mut info = conformance::ComplianceInfo::default();
-
-        let catalog_obj = self
-            .arena
-            .get_object(self.root)
-            .ok_or_else(|| PdfError::Other("Missing document catalog".into()))?;
-        let Ok(catalog) = PdfCatalog::from_pdf_object(catalog_obj, &self.arena) else {
-            return Ok(info);
-        };
-
-        // 1. Check for /StructTreeRoot
-        info.has_struct_tree = catalog.struct_tree_root.is_some();
-
-        // 2. Check for /MarkInfo -> /Marked true. Eleven lines of raw-dictionary walking
-        // until `/MarkInfo` was typed (Phase K); the entry says this itself now.
-        info.is_marked = catalog.mark_info.and_then(|m| m.marked).unwrap_or(false);
-
-        // 3. Extract Metadata Conformance
-        let pdf_20 = catalog.version.and_then(|v| v.numbers()) == Some((2, 0));
-
-        if info.has_struct_tree && pdf_20 {
-            info.metadata.pdf_ua_part = Some(2);
-        }
-
-        Ok(info)
     }
 
     /// Returns the handle to the Structure Tree Root dictionary, if it exists.

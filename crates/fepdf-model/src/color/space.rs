@@ -222,11 +222,6 @@ impl ResolvedColorSpace {
         components_to_color(&out[..tint.alternate_components])
     }
 
-    /// Whether painting in this space needs a tint transform run first.
-    pub fn is_tinted(&self) -> bool {
-        self.tint.is_some()
-    }
-
     /// A colour from components whose space is not known, taken from how many there are.
     ///
     /// For the callers that have components and no `/ColorSpace` to read them against —

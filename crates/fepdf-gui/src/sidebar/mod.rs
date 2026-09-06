@@ -1,6 +1,4 @@
 mod accessibility;
-mod attachments;
-mod bookmarks;
 pub mod document_info;
 pub mod layers;
 pub mod structure_tree;

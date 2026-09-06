@@ -27,9 +27,8 @@ use crate::interactive::{array_of, dict_of, name_of};
 use crate::object::Object;
 use crate::reader;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 
-type Dict = BTreeMap<crate::handle::Handle<crate::object::PdfName>, Object>;
+use crate::access::Dict;
 
 /// What checking one signature showed.
 #[derive(Debug, Clone, Serialize, Deserialize)]

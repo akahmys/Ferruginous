@@ -642,36 +642,6 @@ impl<'a, W: Write> PdfWriter<'a, W> {
         Ok(())
     }
 
-    /// Appends an incremental update to the output.
-    pub fn write_incremental_update(
-        &mut self,
-        _root_handle: Handle<Object>,
-        prev_xref: usize,
-        total_objects: u32,
-        changed_handles: &[(u32, Handle<Object>)],
-    ) -> PdfResult<()> {
-        let update_start = self.current_offset();
-        for (id, handle) in changed_handles {
-            self.write_indirect_object(*id, 0, *handle)?;
-        }
-
-        let xref_offset = self.current_offset();
-        self.write_all(b"xref\r\n")?;
-        for (id, _) in changed_handles {
-            self.write_all(format!("{id} 1\r\n").as_bytes())?;
-            let off = self.xref.get(id).copied().unwrap_or(0);
-            self.write_all(format!("{off:010} 00000 n\r\n").as_bytes())?;
-        }
-
-        let id_bytes = self.generate_file_id(None);
-        let id_hex = hex::encode(&id_bytes).to_uppercase();
-        self.write_all(format!("trailer\r\n<< /Size {total_objects} /Prev {prev_xref} /Root 2 0 R /ID [<{id_hex}> <{id_hex}>] >>\r\nstartxref\r\n{xref_offset}\r\n%%EOF\r\n").as_bytes())?;
-
-        self.inner.write_all(&self.buffer[update_start..]).map_err(PdfError::Io)?;
-        self.inner.flush().map_err(PdfError::Io)?;
-        Ok(())
-    }
-
     /// Writes the signature dictionary, reserving the two fields the file has to be
     /// finished before it can state.
     ///

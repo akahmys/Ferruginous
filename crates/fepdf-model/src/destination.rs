@@ -32,11 +32,11 @@
 
 use crate::arena::PdfArena;
 use crate::handle::Handle;
-use crate::object::{Object, PdfName};
+use crate::object::Object;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-type Dict = BTreeMap<Handle<PdfName>, Object>;
+use crate::access::Dict;
 
 /// What page a destination names, and how it names it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

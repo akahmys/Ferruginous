@@ -172,34 +172,6 @@ impl PdfArena {
         }
     }
 
-    /// Reads an object together with its generation.
-    pub fn get_object_entry(&self, handle: Handle<Object>) -> Option<ObjectEntry> {
-        self.inner.objects.read().get(handle.index() as usize).cloned()
-    }
-
-    /// Replaces the object and generation at `handle`.
-    pub fn set_object_entry(&self, handle: Handle<Object>, entry: ObjectEntry) {
-        let mut objects = self.inner.objects.write();
-        if let Some(e) = objects.get_mut(handle.index() as usize) {
-            let old_val = e.object.clone();
-            let new_val = entry.object.clone();
-            *e = entry;
-
-            let mut idx = self.inner.object_index.write();
-            // Remove from old entry list
-            if let Some(list) = idx.get_mut(&old_val) {
-                if let Some(pos) = list.iter().position(|&x| x == handle) {
-                    list.remove(pos);
-                }
-                if list.is_empty() {
-                    idx.remove(&old_val);
-                }
-            }
-            // Add to new entry list
-            idx.entry(new_val).or_default().push(handle);
-        }
-    }
-
     /// Retrieves a dictionary.
     pub fn get_dict(
         &self,
