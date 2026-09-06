@@ -88,6 +88,6 @@ impl<T> fmt::Debug for Handle<T> {
 ///
 /// Three copies of this alias used to exist: two `pub` ones in the same crate
 /// (`document` and `reader`, so `fepdf_model` exported one type under two paths) and a
-/// private one in `fepdf-doc`'s `cloning.rs`.
+/// private one in `fepdf-doc`'s `cloning.rs` ([ADR-0071](../../../docs/adr/0071-three-declarations-that-read-nothing-and-one-that-wrote-nothing.md)).
 pub type DictHandle =
     Handle<std::collections::BTreeMap<Handle<crate::object::PdfName>, crate::Object>>;

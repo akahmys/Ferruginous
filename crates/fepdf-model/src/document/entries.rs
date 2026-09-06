@@ -2,7 +2,7 @@
 //!
 //! Every key of Table 29 has been a field of [`crate::document::PdfCatalog`] since Phase
 //! D, and 26 of the 32 were `Option<Object>`: reachable by name, contents as opaque as
-//! before the field existed ([ADR-0017](../../../docs/adr/0017-declaring-a-catalogue-key-is-not-modelling-it.md)).
+//! before the field existed ([ADR-0017](../../../../docs/adr/0017-declaring-a-catalogue-key-is-not-modelling-it.md)).
 //! This module is the other half — a reader for each entry the corpora actually present,
 //! built in the order they present it:
 //!
@@ -788,7 +788,7 @@ impl FromPdfObject for XmpMetadata {
 ///
 /// What the root *declares* — the count it claims and the attributes its pages inherit
 /// — rather than the pages themselves, which `Document::pages` holds after ingestion has
-/// resolved inheritance into each page ([ADR-0013](../../../docs/adr/0013-a-document-is-one-normalised-state.md)).
+/// resolved inheritance into each page ([ADR-0013](../../../../docs/adr/0013-a-document-is-one-normalised-state.md)).
 /// The claim is worth reading separately: `/Count` is a number the file asserts, and a
 /// file that asserts the wrong one is a file this engine can now say so about.
 #[derive(Debug, Clone, FromPdfObject, Serialize, Deserialize)]

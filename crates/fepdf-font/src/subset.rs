@@ -64,6 +64,8 @@ impl<'a> TrueTypeSubsetter<'a> {
 /// The two forms separate no file in the 524-file corpus — all 316 subsetted names there
 /// match both — so this unification fixes a divergence that had not yet been reached, not
 /// a reading that was wrong today.
+///
+/// [ADR-0071](../../../docs/adr/0071-three-declarations-that-read-nothing-and-one-that-wrote-nothing.md).
 pub fn subset_tag(base_font: &str) -> Option<&str> {
     let bytes = base_font.as_bytes();
     if bytes.len() < 8 || bytes[6] != b'+' {

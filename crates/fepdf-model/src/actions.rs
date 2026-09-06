@@ -3,7 +3,7 @@
 //! **A different question from "what interactive features are here".**
 //! [`crate::interactive`] counts actions by `/S`, which says a file carries one
 //! `/JavaScript` and nothing about what the script is or when it runs.
-//! [ADR-0019](../../docs/adr/0019-semantic-understanding-is-measured-against-what-a-corpus-presents.md)
+//! [ADR-0019](../../../docs/adr/0019-semantic-understanding-is-measured-against-what-a-corpus-presents.md)
 //! kept actions out of the coverage index because *"reads an action"* has no settled
 //! meaning — a `/GoTo`'s destination resolves through the name tree while a `/URI`'s
 //! target is never looked at. **"What can this document do, and does the reader have to

@@ -8,7 +8,7 @@
 //! **The denominator is what the files contain, not what the standard defines.** A
 //! construct no file writes can neither raise the figure nor lower it, which is the
 //! property that matters: this project has twice built containers before their contents
-//! and had the count read as progress ([ADR-0017](../../docs/adr/0017-declaring-a-catalogue-key-is-not-modelling-it.md)).
+//! and had the count read as progress ([ADR-0017](../../../docs/adr/0017-declaring-a-catalogue-key-is-not-modelling-it.md)).
 //! Typing `/DPartRoot`, which occurs in none of the 251 files of both corpora, moves
 //! nothing here.
 //!
@@ -18,7 +18,7 @@
 //! readers name it. A filter counts when [`crate::filters::is_decoded`] is true of it.
 //!
 //! What this is **not** is stated in
-//! [ADR-0019](../../docs/adr/0019-semantic-understanding-is-measured-against-what-a-corpus-presents.md),
+//! [ADR-0019](../../../docs/adr/0019-semantic-understanding-is-measured-against-what-a-corpus-presents.md),
 //! and belongs here too: a coverage figure over what a corpus happened to contain is a
 //! *proxy* for understanding. It says nothing about whether what was read was read
 //! correctly, and a corpus that presents little will flatter an engine that does little.

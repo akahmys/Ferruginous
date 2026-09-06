@@ -126,6 +126,11 @@ impl<'a> ComplianceAuditor<'a> {
 
     /// Records the clause for whichever font subtype `/Subtype` declares.
     ///
+    /// The three commonest — Type 1, TrueType and Type 0 — were the three this dispatch
+    /// did not ask about, and their schema types were referenced by nothing
+    /// ([ADR-0071](../../../../docs/adr/0071-three-declarations-that-read-nothing-and-one-that-wrote-nothing.md)); Type 3 followed in
+    /// [ADR-0073](../../../../docs/adr/0073-rule-13s-other-half-and-three-declarations-that-were-checks.md).
+    ///
     /// A font's subtype decides which clause of 9.6/9.7 defines it, so the clause
     /// recorded is the one the document itself named. A dictionary that declares a
     /// subtype but does not parse as it records nothing: the clause list says what

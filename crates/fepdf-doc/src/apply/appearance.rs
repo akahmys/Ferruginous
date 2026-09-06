@@ -4,7 +4,7 @@
 //! consist of writing the value and then setting that flag — which is a producer telling
 //! the reader "you work it out", using an entry this edition lists among the features it
 //! deprecates (0.3). This engine's own rule is *do not write what 2.0 deprecates*, and it
-//! was applied to encryption ([ADR-0015](../../../docs/adr/0015-this-engine-reads-five-encryption-schemes-and-writes-one.md))
+//! was applied to encryption ([ADR-0015](../../../../docs/adr/0015-this-engine-reads-five-encryption-schemes-and-writes-one.md))
 //! and not to forms.
 //!
 //! So the appearance is built here instead. 12.7.4.3 says what it has to be: a form

@@ -151,7 +151,7 @@ const TABLE_29: &[(&str, bool)] = &[
 /// The list is here rather than in a document because it is a *refusal*, and a refusal
 /// that lives only in prose is one nobody is reminded of. Building a reader for one of
 /// these would be a container before its contents — the shape Phase D was ordered to
-/// avoid and [ADR-0017](../../docs/adr/0017-declaring-a-catalogue-key-is-not-modelling-it.md)
+/// avoid and [ADR-0017](../../../docs/adr/0017-declaring-a-catalogue-key-is-not-modelling-it.md)
 /// records the cost of. `the_keys_no_file_carries_did_not_gain_readers` holds the line.
 ///
 /// A key leaving this list is a *finding*: it means a corpus arrived that presents
