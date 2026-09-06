@@ -63,9 +63,7 @@ working as intended, not a cycle.
 
 ### 2.1 Directory layout
 
-Where things live, and what may not move. This was `docs/conventions/DIRECTORY_LAYOUT.md`
-until 2026-08-29; a document that states where code must go is part of the design, and a
-`conventions/` directory outside the hierarchy was a second place to look for one rule.
+Where things live, and what may not move.
 
 | Directory | Holds | Owner |
 | :--- | :--- | :--- |
@@ -87,17 +85,9 @@ until 2026-08-29; a document that states where code must go is part of the desig
 2.  **Output Isolation**: every generated file goes under `out/`, which is git-ignored
     and the only root directory that holds output.
 
-    Held by four writers that did not, until 2026-08-29: `render_all_samples.rs`,
-    `render_japanese_samples.rs`, `fepdf-mcp`'s render tool and a
-    `hiragana_render_test.sh` deleted on 2026-09-06 — it called `fepdf produce render`, a
-    verb the CLI has not had since it was split into `inspect`/`edit`/`publish`/`debug`,
-    and its only assertion was that the PNG exceeded 50 KB, which a page of the wrong
-    glyphs satisfies as readily as a page of the right ones. All four wrote to a
-    root-level `artifacts/`. It was git-ignored too, so nothing was ever going to notice —
-    which is why this rule now names the directory rather than the principle. `fepdf debug extract-font` had the worse version of the same fault: it
-    wrote to a root-level `exports/` that was **not** git-ignored and never created, so
-    the write failed unless someone had made the directory by hand, and left untracked
-    files in the repository root when they had.
+    The rule names the directory rather than the principle, because a git-ignored
+    directory outside it is one nothing notices
+    ([ADR-0080](docs/adr/0080-a-design-document-does-not-carry-a-number-that-moves.md)).
 
 3.  **Script Categorization**:
     *   `scripts/audit/`: Compliance, security, and static analysis.
@@ -130,18 +120,8 @@ until 2026-08-29; a document that states where code must go is part of the desig
 
 Status: **✅** exists as-is · **⚠️** partially landed · **🔄** code exists, lives elsewhere today · **🆕** new.
 
-**This table carried a `~Lines` column until 2026-09-07 and no longer does.** It was never
-a budget — the document said so itself, every crate having outgrown the row that described
-it — and nothing else in the repository read the figures. What they were for was noticing
-drift: `fepdf-mcp` once read 330 while it held 1,902, and the gap was how anyone learnt it
-had become the frontend constructing every operation of the day.
-
-That worked once and cost three re-measurements to keep. Drift is only visible when
-someone re-derives, and re-deriving spends the signal: the set from 2026-08-18 was stale
-everywhere but one row, the set from 2026-08-22 was stale in ten of thirteen rows sixteen
-days later, `fepdf-model` by 1,956 lines. A number that changes with every commit does not
-belong in a document that changes with every decision. What each crate *holds* is one
-command away:
+What each crate holds is one command away, and is not written down here
+([ADR-0080](docs/adr/0080-a-design-document-does-not-carry-a-number-that-moves.md)):
 
 ```bash
 for c in crates/*/; do
@@ -252,12 +232,11 @@ pub enum RotateMode {
 }
 ```
 
-**This listing was fiction until 2026-08-22.** It named 21 variants of which **nine did
-not exist** — `InsertFrom`, `Retag`, `Redact`, `Upgrade`, `CreateLayer`,
-`SetLayerVisibility`, `AddHyperlink`, `AddStamp`, `AddPageDecorations` — and omitted
-**twelve that did**, including everything Phases 5 to 7 added. It was the plan, written
-before the code and never re-read against it, in the section that defines the rule the
-rest of the architecture leans on.
+**The listing above is derived from the enum, not written beside it**
+([ADR-0080](docs/adr/0080-a-design-document-does-not-carry-a-number-that-moves.md)):
+`./scripts/dev/status.sh` counts the variants and checks the count this section states
+against them, because a list written before the code and never re-read against it named
+nine variants that did not exist.
 
 ```bash
 sed -n '/^pub enum Operation {/,/^}/p' crates/fepdf-doc/src/operation.rs | grep -oE '^    [A-Z][A-Za-z]*'
@@ -430,22 +409,11 @@ deliberate.** They report properties of the *host*: which fonts this machine has
 (`fepdf-model/src/font/mod.rs`), the GPU failing to initialise so the CPU renderer takes
 over, and a system fallback font that would not load from its path.
 
-**The thirteen that were conclusions about the document did not all become `Decision`s,
-and the reason is the rule below.** Each was measured against the nine conforming samples
-before it was touched, and three of the thirteen turned out not to be conclusions at all:
-
-| site | fired on conforming input | became |
-| :--- | ---: | :--- |
-| `interpreter/font.rs` "not SFNT, using fallback" | **469** | deleted |
-| `reconstruction.rs` "CFF table not found in SFNT container" | **918** | deleted |
-| `reconstruction.rs` "Unrecognized font format" | 0 | deleted |
-| `reconstruction.rs` "SFNT assembly FAILED" | 0 | `log::debug` |
-| the other nine | 0 | `Decision` |
-
-"Unrecognized font format" was a third copy of a test that already exists: measured across
-the whole external corpus it fired on exactly the three `isartor-6-3-2-t01-fail-*` files,
-which are exactly the files already carrying the 9.9 `Violation` "embeds a program in no
-recognised format" — twice per document where the decision fires once.
+**A log site is a `Decision` when it is a conclusion about the document, and only then.**
+Thirteen candidates were measured against the nine conforming samples before any was
+converted; three turned out to be conclusions about the *engine* instead, and one was a
+third copy of a test that already existed. What each became, and the counts that decided
+it, are in [ADR-0028](docs/adr/0028-four-of-the-thirteen-logs-were-not-decisions.md).
 
 **A backend cannot record for itself**, because it sits below any `Document`: it is handed
 paths and glyphs, not a file. `RenderBackend::take_decisions` is defaulted to empty and
@@ -460,14 +428,11 @@ permits — was recorded as an `Ambiguity`, so `samples/sample.pdf` reported 31
 departures and `is_conforming` returned `false` for a clean file
 ([ADR-0008](docs/adr/0008-an-indirect-length-is-not-an-ambiguity.md)).
 
-The rule has caught a second one since. Settling `/Info` against the metadata stream
-(§4.4) began by recording the move of the entries 14.3.3 deprecates — which every one
-of the nine samples carries, so every one of them grew a `Repaired` line. Carrying a
-deprecated entry is not non-conformance and moving it loses nothing, so it is not a
-decision; the disagreement that *does* lose something is, and that fires on one file.
-Eight samples record nothing and `samples/fy05.pdf` records its one real ambiguity.
-`metadata.rs` holds a test asserting exactly that, because the property is easy to
-break from a distance.
+The same rule governs settling `/Info` against the metadata stream (§4.4). Moving an entry
+14.3.3 deprecates is not non-conformance and loses nothing, so it records nothing; the
+*disagreement* between the two places does lose something, so it records an `Ambiguity`.
+Eight of the nine samples therefore record nothing here and `samples/fy05.pdf` records one.
+`metadata.rs` holds a test asserting exactly that.
 
 When adding a decision point, check it against a conforming file as well as a broken
 one. `./scripts/dev/status.sh` re-derives the site count above, so a figure that has

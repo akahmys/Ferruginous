@@ -144,3 +144,5 @@ quietly wrong — which is the failure this log exists to make visible.
 | 0077 | [A command was seventy-two bytes because of one rare variant](0077-a-command-was-seventy-two-bytes-because-of-one-rare-variant.md) | Continues 0076 |
 | 0078 | [What sweeping 752 tests found, and what the sweeps got wrong](0078-what-a-test-suite-sweep-found-and-what-it-did-not.md) | Extends 0068 |
 | 0079 | [The pre-parsed command form stays eager](0079-the-pre-parsed-command-form-stays-eager.md) | Closes 0077's open question |
+| 0080 | [A design document does not carry a number that moves](0080-a-design-document-does-not-carry-a-number-that-moves.md) | — |
+| 0081 | [The writing rules had nothing behind them](0081-the-writing-rules-had-nothing-behind-them.md) | Enforces 0039 |
