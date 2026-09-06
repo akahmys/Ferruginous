@@ -260,35 +260,37 @@ impl<'a> Sublimator<'a> {
             "f" | "F" | "f*" | "S" | "s" | "B" | "B*" | "b" | "b*" => match op {
                 "f" | "F" => vec![Command::Fill(WindingRule::NonZero)],
                 "f*" => vec![Command::Fill(WindingRule::EvenOdd)],
-                "S" => self.create_stroke().map(Command::Stroke).into_iter().collect(),
+                "S" => {
+                    self.create_stroke().map(|s| Command::Stroke(Box::new(s))).into_iter().collect()
+                }
                 "s" => {
                     let mut cmds = self.handle_operator("h", prev_commands);
                     if let Some(s) = self.create_stroke() {
-                        cmds.push(Command::Stroke(s));
+                        cmds.push(Command::Stroke(Box::new(s)));
                     }
                     cmds
                 }
                 "B" => self
                     .create_stroke()
-                    .map(|s| Command::FillStroke(WindingRule::NonZero, s))
+                    .map(|s| Command::FillStroke(WindingRule::NonZero, Box::new(s)))
                     .into_iter()
                     .collect(),
                 "B*" => self
                     .create_stroke()
-                    .map(|s| Command::FillStroke(WindingRule::EvenOdd, s))
+                    .map(|s| Command::FillStroke(WindingRule::EvenOdd, Box::new(s)))
                     .into_iter()
                     .collect(),
                 "b" => {
                     let mut cmds = self.handle_operator("h", prev_commands);
                     if let Some(s) = self.create_stroke() {
-                        cmds.push(Command::FillStroke(WindingRule::NonZero, s));
+                        cmds.push(Command::FillStroke(WindingRule::NonZero, Box::new(s)));
                     }
                     cmds
                 }
                 "b*" => {
                     let mut cmds = self.handle_operator("h", prev_commands);
                     if let Some(s) = self.create_stroke() {
-                        cmds.push(Command::FillStroke(WindingRule::EvenOdd, s));
+                        cmds.push(Command::FillStroke(WindingRule::EvenOdd, Box::new(s)));
                     }
                     cmds
                 }

@@ -141,3 +141,4 @@ quietly wrong — which is the failure this log exists to make visible.
 | 0074 | [The reader copied the rest of the file once per object](0074-the-reader-copied-the-file-once-per-object.md) | Closes 0071's last item |
 | 0075 | [Two costs a caller never asked for](0075-two-costs-a-caller-never-asked-for.md) | Answers 0074, closes 0061's `Drop` |
 | 0076 | [What the arena compresses, and what that was costing](0076-what-the-arena-compresses-and-what-that-was-costing.md) | Continues 0075 |
+| 0077 | [A command was seventy-two bytes because of one rare variant](0077-a-command-was-seventy-two-bytes-because-of-one-rare-variant.md) | Continues 0076 |

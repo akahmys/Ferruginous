@@ -180,7 +180,9 @@ fn parse_command(input: &str) -> IResult<&str, Command> {
         map(preceded(tag("Transform("), terminated_char(parse_affine, ')')), Command::Transform),
         map(preceded(tag("MoveTo("), terminated_char(parse_point, ')')), Command::MoveTo),
         map(preceded(tag("LineTo("), terminated_char(parse_point, ')')), Command::LineTo),
-        map(preceded(tag("Stroke("), terminated_char(parse_stroke_style, ')')), Command::Stroke),
+        map(preceded(tag("Stroke("), terminated_char(parse_stroke_style, ')')), |s| {
+            Command::Stroke(Box::new(s))
+        }),
         map(
             preceded(tag("DrawXObject("), terminated_char(parse_string_literal, ')')),
             Command::DrawXObject,
