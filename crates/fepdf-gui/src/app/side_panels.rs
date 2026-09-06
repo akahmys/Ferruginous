@@ -16,7 +16,6 @@ impl FepdfApp {
             tip_export,
             tip_info,
             tip_acc,
-            tip_insp,
             tip_redact,
             tip_caliper,
             tip_about,
@@ -29,7 +28,6 @@ impl FepdfApp {
                 mgr.tr(l, "tooltip_export_pdf"),
                 mgr.tr(l, "tab_doc_info_decisions"),
                 mgr.tr(l, "tab_accessibility"),
-                mgr.tr(l, "tooltip_inspector"),
                 mgr.tr(l, "tooltip_redact_brush"),
                 mgr.tr(l, "tooltip_caliper_brush"),
                 mgr.tr(l, "tooltip_about"),
@@ -100,17 +98,6 @@ impl FepdfApp {
                             } else {
                                 ActiveDrawer::Accessibility
                             };
-                            self.caliper_tool.is_active = false;
-                        }
-
-                        ui.add_space(2.0);
-
-                        // Arlington Inspector
-                        let is_insp = self.active_drawer == ActiveDrawer::Inspector;
-                        let insp_btn = icon_bar_btn("\u{e151}", is_insp);
-                        if ui.add(insp_btn).on_hover_text(tip_insp).clicked() {
-                            self.active_drawer =
-                                if is_insp { ActiveDrawer::None } else { ActiveDrawer::Inspector };
                             self.caliper_tool.is_active = false;
                         }
 
@@ -207,7 +194,6 @@ impl FepdfApp {
                         ActiveDrawer::Accessibility => {
                             locale_mgr.tr(active_lang, "tab_accessibility")
                         }
-                        ActiveDrawer::Inspector => locale_mgr.tr(active_lang, "tooltip_inspector"),
                         ActiveDrawer::Redaction => {
                             locale_mgr.tr(active_lang, "tooltip_redact_brush")
                         }
@@ -254,22 +240,6 @@ impl FepdfApp {
                                 ui,
                                 &mut self.ust_registry,
                                 &self.tx_worker,
-                                locale_mgr,
-                                active_lang,
-                            );
-                        }
-                        ActiveDrawer::Inspector => {
-                            let selected_tag = self.ust_registry.selected_node_id.and_then(|id| {
-                                if let Some(ref root) = self.ust_registry.root {
-                                    crate::sidebar::USTRegistry::find_node_by_id_recursive(root, id)
-                                        .map(|n| n.tag.as_str())
-                                } else {
-                                    None
-                                }
-                            });
-                            self.arlington_inspector.show(
-                                ui,
-                                selected_tag,
                                 locale_mgr,
                                 active_lang,
                             );

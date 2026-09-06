@@ -37,7 +37,6 @@ mod app;
 mod cad_canvas;
 mod command_palette;
 mod export_wizard;
-mod inspector;
 mod interaction;
 mod locale;
 mod redaction;

@@ -45,9 +45,6 @@ impl CommandPalette {
                     app.locale_mgr.tr(&app.active_language, "cmd_caliper_brush");
                 let cmd_caliper_brush_desc =
                     app.locale_mgr.tr(&app.active_language, "cmd_caliper_brush_desc");
-                let cmd_inspector = app.locale_mgr.tr(&app.active_language, "cmd_inspector");
-                let cmd_inspector_desc =
-                    app.locale_mgr.tr(&app.active_language, "cmd_inspector_desc");
                 let cmd_export_pdf = app.locale_mgr.tr(&app.active_language, "cmd_export_pdf");
                 let cmd_export_pdf_desc =
                     app.locale_mgr.tr(&app.active_language, "cmd_export_pdf_desc");
@@ -66,7 +63,6 @@ impl CommandPalette {
                     (&cmd_redact_brush, &cmd_redact_brush_desc, "Redact Brush"),
                     (&cmd_tagging_brush, &cmd_tagging_brush_desc, "Tagging Brush"),
                     (&cmd_caliper_brush, &cmd_caliper_brush_desc, "Caliper Brush"),
-                    (&cmd_inspector, &cmd_inspector_desc, "Inspector"),
                     (&cmd_export_pdf, &cmd_export_pdf_desc, "Export PDF"),
                     (&cmd_reading_order, &cmd_reading_order_desc, "Reading Order"),
                     (&cmd_redaction_studio, &cmd_redaction_studio_desc, "Redaction Studio"),
@@ -113,15 +109,6 @@ impl CommandPalette {
                                     crate::sidebar::ActiveDrawer::Caliper
                                 };
                                 app.caliper_tool.is_active = !is_caliper;
-                            }
-                            "Inspector" => {
-                                app.active_drawer = if app.active_drawer
-                                    == crate::sidebar::ActiveDrawer::Inspector
-                                {
-                                    crate::sidebar::ActiveDrawer::None
-                                } else {
-                                    crate::sidebar::ActiveDrawer::Inspector
-                                };
                             }
                             "Export PDF" => app.show_export_wizard = true,
                             "Reading Order" => app.show_reading_order = !app.show_reading_order,

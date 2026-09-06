@@ -16,7 +16,6 @@ pub enum ActiveDrawer {
     None,
     DocumentInfo,
     Accessibility,
-    Inspector,
     Redaction,
     Caliper,
 }

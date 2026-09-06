@@ -63,7 +63,6 @@ pub struct FepdfApp {
     // CAD snappers & Inspector
     pub cad_snap_engine: crate::cad_canvas::CadSnapEngine,
     pub caliper_tool: crate::cad_canvas::CaliperTool,
-    pub arlington_inspector: crate::inspector::ArlingtonInspectorPanel,
     pub active_drawer: crate::sidebar::ActiveDrawer,
 
     // Selection management
@@ -168,7 +167,6 @@ impl FepdfApp {
             // CAD & Inspector Defaults
             cad_snap_engine: crate::cad_canvas::CadSnapEngine::new(),
             caliper_tool: crate::cad_canvas::CaliperTool::new(),
-            arlington_inspector: crate::inspector::ArlingtonInspectorPanel::new(),
             active_drawer: crate::sidebar::ActiveDrawer::None,
 
             // Selection Defaults
