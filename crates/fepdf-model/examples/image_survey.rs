@@ -24,7 +24,9 @@ fn main() {
 
     for path in &paths {
         let Ok(data) = std::fs::read(path) else { continue };
-        let Ok(raw) = reader::load_document(&data) else { continue };
+        let Ok(raw) = reader::load_document(&bytes::Bytes::copy_from_slice(&data)) else {
+            continue;
+        };
         let arena = &raw.arena;
         let mut here = 0;
 

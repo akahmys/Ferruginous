@@ -55,8 +55,9 @@ fn file_with_an_undecodable_section() -> Vec<u8> {
 /// — its catalogue included — and reported "read without departing from the standard".
 #[test]
 fn an_unreadable_section_is_recorded_and_its_objects_are_recovered() {
-    let raw = reader::load_document(&file_with_an_undecodable_section())
-        .expect("the readable section and a scan are between them enough");
+    let raw =
+        reader::load_document(&bytes::Bytes::copy_from_slice(&file_with_an_undecodable_section()))
+            .expect("the readable section and a scan are between them enough");
 
     let log = format!("{:?}", raw.decisions.entries());
     assert!(log.contains("7.5.8"), "the lost section is not recorded: {log}");
@@ -83,7 +84,8 @@ fn an_unreadable_section_is_recorded_and_its_objects_are_recovered() {
 /// must therefore stay off entirely when nothing was lost.
 #[test]
 fn a_file_whose_sections_all_read_is_never_scanned() {
-    let raw = reader::load_document(&well_formed_file()).expect("a well-formed file");
+    let raw = reader::load_document(&bytes::Bytes::copy_from_slice(&well_formed_file()))
+        .expect("a well-formed file");
     let log = format!("{:?}", raw.decisions.entries());
     assert!(!log.contains("7.5.8"), "reported an unreadable section: {log}");
     assert!(!log.contains("could not be read"), "scanned a file that lost nothing: {log}");
@@ -163,7 +165,7 @@ fn the_scan_does_not_override_a_section_that_was_read() {
     out.extend_from_slice(b"\nendstream\nendobj\n");
     out.extend_from_slice(format!("startxref\n{stream_at}\n%%EOF\n").as_bytes());
 
-    let raw = reader::load_document(&out).expect("readable");
+    let raw = reader::load_document(&bytes::Bytes::copy_from_slice(&out)).expect("readable");
     let page = raw.arena.get_object(fepdf_model::Handle::new(3)).expect("object 3 is present");
     let dict = raw
         .arena

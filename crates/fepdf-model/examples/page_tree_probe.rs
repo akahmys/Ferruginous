@@ -11,7 +11,7 @@ use fepdf_model::object::Object;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     for path in std::env::args().skip(1) {
         let data = std::fs::read(&path)?;
-        let raw = fepdf_model::reader::load_document(&data)?;
+        let raw = fepdf_model::reader::load_document(&bytes::Bytes::copy_from_slice(&data))?;
         let arena = &raw.arena;
         let declared = raw.trailer.and_then(|t| root_page_count(arena, t));
         let (pages, nodes, mismatched) = walk(arena);

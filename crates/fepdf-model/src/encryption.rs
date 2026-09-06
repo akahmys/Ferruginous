@@ -183,7 +183,10 @@ impl EncryptionReport {
     /// # Errors
     /// Fails only when the file cannot be read at all.
     pub fn survey(bytes: &[u8], credentials: decrypt::Credentials<'_>) -> PdfResult<Self> {
-        let raw = reader::load_document(bytes)?;
+        // One copy of the file here, instead of one copy of its tail per object inside
+        // `parse_indirect_at` (ADR-0074). These entry points take a `&[u8]` from a public
+        // API; `Document::open` already holds a `Bytes` and passes it through untouched.
+        let raw = reader::load_document(&bytes::Bytes::copy_from_slice(bytes))?;
 
         // Read the dictionary *before* unlocking. `unlock` drops `/Encrypt` when it
         // succeeds — Acrobat reports error 135 for a file whose trailer still claims

@@ -117,7 +117,7 @@ pub struct FileStructure {
 /// One walk rather than one per question: `samples/intel_sdm.pdf` has 332,386 entries
 /// in its first section alone, and three walks cost a minute.
 fn walk_sections(
-    bytes: &[u8],
+    bytes: &bytes::Bytes,
     header_offset: usize,
 ) -> (Vec<Revision>, BTreeMap<u32, XrefRecord>, BTreeSet<u32>) {
     let scratch = PdfArena::new();
@@ -267,8 +267,12 @@ impl FileStructure {
     /// Propagates a read failure only when the file cannot be opened at all; a file
     /// that needs repair is reported, with the repairs in [`Self::decisions`].
     pub fn survey(bytes: &[u8]) -> PdfResult<Self> {
+        // One copy for the whole survey, shared by the section walk and the read below
+        // (ADR-0074). `parse_indirect_at` slices it rather than copying the file's tail
+        // once per object.
+        let shared = bytes::Bytes::copy_from_slice(bytes);
         let header_offset = xref::find_header(bytes).map_or(0, |h| h.offset);
-        let (revisions, mut merged, superseded) = walk_sections(bytes, header_offset);
+        let (revisions, mut merged, superseded) = walk_sections(&shared, header_offset);
 
         // The document as the reader actually assembles it, so the decisions reported
         // are the raw read's own and not a re-derivation of them.
@@ -279,7 +283,10 @@ impl FileStructure {
         // Measured on the corpus: the two differ on 41 of 524 files. This comment used to say
         // the logs were the same, which is why the wording each report prints now names
         // what it read.
-        let raw = reader::load_document(bytes)?;
+        // One copy of the file here, instead of one copy of its tail per object inside
+        // `parse_indirect_at` (ADR-0074). These entry points take a `&[u8]` from a public
+        // API; `Document::open` already holds a `Bytes` and passes it through untouched.
+        let raw = reader::load_document(&shared)?;
 
         // The reader falls back to scanning when the cross-reference yields nothing
         // (7.5.4); the census has to follow it there, or it reports an empty file.

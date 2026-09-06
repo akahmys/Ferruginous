@@ -78,7 +78,10 @@ impl SignatureReport {
     /// Fails when the file cannot be read or names no catalogue. A signature that does
     /// not verify is a result, not an error: the question was asked and answered.
     pub fn survey(bytes: &[u8]) -> PdfResult<Self> {
-        let raw = reader::load_document(bytes)?;
+        // One copy of the file here, instead of one copy of its tail per object inside
+        // `parse_indirect_at` (ADR-0074). These entry points take a `&[u8]` from a public
+        // API; `Document::open` already holds a `Bytes` and passes it through untouched.
+        let raw = reader::load_document(&bytes::Bytes::copy_from_slice(bytes))?;
         let mut decisions = raw.decisions.clone();
         crate::decrypt::unlock_raw(&raw, Credentials::default(), &mut decisions)?;
         let arena = &raw.arena;

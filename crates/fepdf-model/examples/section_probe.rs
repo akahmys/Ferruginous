@@ -17,7 +17,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("startxref = {start}; chain oldest-first = {chain:?}");
     for at in chain {
         let offset = usize::try_from(at)?;
-        let section = reader::read_xref_section(&data, offset, &arena, &mut log)?;
+        let section = reader::read_xref_section(
+            &bytes::Bytes::copy_from_slice(&data),
+            offset,
+            &arena,
+            &mut log,
+        )?;
         println!(
             "  section @{offset}: {} entries, trailer={}, object {target} -> {:?}",
             section.entries.len(),

@@ -291,7 +291,10 @@ impl CatalogReport {
     /// # Errors
     /// Fails when the file cannot be read, or names no catalogue to report.
     pub fn survey(bytes: &[u8]) -> PdfResult<Self> {
-        let raw = reader::load_document(bytes)?;
+        // One copy of the file here, instead of one copy of its tail per object inside
+        // `parse_indirect_at` (ADR-0074). These entry points take a `&[u8]` from a public
+        // API; `Document::open` already holds a `Bytes` and passes it through untouched.
+        let raw = reader::load_document(&bytes::Bytes::copy_from_slice(bytes))?;
         // Pass 0, as `Document::open` runs it. Without this the report describes the
         // file's *ciphertext*: `samples/unicode_16.pdf` listed `/Lang` as a 32-byte
         // string, which is one AES block and an IV, not a language tag.

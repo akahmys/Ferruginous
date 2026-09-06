@@ -44,7 +44,12 @@ fn survey(path: &str) -> Result<Survey, Box<dyn std::error::Error>> {
     let mut newest = std::collections::BTreeMap::new();
     for at in &chain {
         let Ok(offset) = usize::try_from(*at) else { continue };
-        if let Ok(section) = reader::read_xref_section(&data, offset, &arena, &mut log) {
+        if let Ok(section) = reader::read_xref_section(
+            &bytes::Bytes::copy_from_slice(&data),
+            offset,
+            &arena,
+            &mut log,
+        ) {
             for (num, rec) in section.entries {
                 newest.entry(num).or_insert(rec);
             }
@@ -66,7 +71,7 @@ fn survey(path: &str) -> Result<Survey, Box<dyn std::error::Error>> {
         }
     }
 
-    let doc = reader::load_document(&data)?;
+    let doc = reader::load_document(&bytes::Bytes::copy_from_slice(&data))?;
     let entries = doc.decisions.entries();
     let decisions = (
         entries.iter().filter(|d| d.severity == Severity::Ambiguity).count(),

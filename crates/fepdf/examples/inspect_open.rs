@@ -4,7 +4,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Step 1: Reading file...");
     let data = std::fs::read("samples/bokutokitan.pdf")?;
     println!("Step 2: reader::load_document...");
-    let raw = fepdf_model::reader::load_document(&data)?;
+    let raw = fepdf_model::reader::load_document(&bytes::Bytes::copy_from_slice(&data))?;
     println!(
         "        {} object slots, {} decisions",
         raw.arena.object_count(),

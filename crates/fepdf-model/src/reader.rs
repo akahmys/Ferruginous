@@ -36,7 +36,7 @@ pub struct IndirectObject {
 /// one needs `/Length`, which is a document-level question: the value may be an
 /// indirect reference, and it is frequently wrong.
 pub fn parse_indirect_at(
-    bytes: &[u8],
+    bytes: &Bytes,
     offset: usize,
     arena: &PdfArena,
     decisions: &mut DecisionLog,
@@ -48,7 +48,16 @@ pub fn parse_indirect_at(
         });
     }
 
-    let mut lexer = Lexer::new(Bytes::copy_from_slice(&bytes[offset..]));
+    // `slice`, not `copy_from_slice`. This is called once per indirect object, and the
+    // copied form duplicated **the whole rest of the file** each time — twice, counting
+    // the body below. `samples/intel_sdm.pdf` has 332,386 entries in its first
+    // cross-reference section alone, so the reader was moving on the order of the file
+    // size times the object count. A sampling profile of `inspect info` on it put 34% of
+    // the run in `_platform_memmove` under exactly these two lines.
+    //
+    // `Bytes::slice` is a refcount bump and two pointers; it needs the caller to hold a
+    // `Bytes` rather than a `&[u8]`, which is why this signature changed.
+    let mut lexer = Lexer::new(bytes.slice(offset..));
     let number = expect_unsigned(&mut lexer, offset)?;
     let generation = expect_unsigned(&mut lexer, offset)?;
     match lexer.next_token()? {
@@ -62,7 +71,7 @@ pub fn parse_indirect_at(
     }
 
     let body_at = offset + lexer.pos();
-    let mut parser = Parser::new(Bytes::copy_from_slice(&bytes[body_at..]), arena);
+    let mut parser = Parser::new(bytes.slice(body_at..), arena);
     let object = parser.parse_object()?;
     let after_body = body_at + parser.position();
 
@@ -279,7 +288,7 @@ pub struct RawDocument {
 /// Recovery is not a separate mode. When the cross-reference is unusable the file is
 /// scanned for `N G obj` instead, and that substitution is recorded rather than
 /// silently applied.
-pub fn load_document(bytes: &[u8]) -> PdfResult<RawDocument> {
+pub fn load_document(bytes: &Bytes) -> PdfResult<RawDocument> {
     let mut decisions = DecisionLog::default();
 
     let header = xref::find_header(bytes);
@@ -333,7 +342,7 @@ pub fn load_document(bytes: &[u8]) -> PdfResult<RawDocument> {
 
 /// Collects every cross-reference record, falling back to a scan of the file.
 fn locate_objects(
-    bytes: &[u8],
+    bytes: &Bytes,
     base: usize,
     arena: &PdfArena,
     decisions: &mut DecisionLog,
@@ -398,7 +407,7 @@ fn locate_objects(
 /// second is silently missing — which is how `UnknownFilter-xrefstm.pdf` came to report
 /// no pages.
 fn recover_unreachable_objects(
-    bytes: &[u8],
+    bytes: &Bytes,
     base: usize,
     records: &mut BTreeMap<u32, XrefRecord>,
     arena: &PdfArena,
@@ -427,7 +436,7 @@ fn recover_unreachable_objects(
 /// earlier in the file. So this fills holes and never overrides, which makes it safe to
 /// run whenever any section was lost and pointless to run when none was.
 fn fill_gaps_by_scanning(
-    bytes: &[u8],
+    bytes: &Bytes,
     records: &mut BTreeMap<u32, XrefRecord>,
     decisions: &mut DecisionLog,
 ) {
@@ -468,7 +477,7 @@ fn fill_gaps_by_scanning(
 /// through the ordinary path in `populate_arena` and `current_container` guards it exactly
 /// as it guards a container the cross-reference named.
 fn adopt_object_stream_members(
-    bytes: &[u8],
+    bytes: &Bytes,
     base: usize,
     records: &mut BTreeMap<u32, XrefRecord>,
     arena: &PdfArena,
@@ -564,7 +573,7 @@ fn members_of_container(stream: &Object, arena: &PdfArena) -> PdfResult<Option<V
 
 /// Places every object in the arena at the slot matching its number.
 fn populate_arena(
-    bytes: &[u8],
+    bytes: &Bytes,
     base: usize,
     records: &BTreeMap<u32, XrefRecord>,
     arena: &PdfArena,
@@ -602,7 +611,7 @@ fn populate_arena(
 
 /// Places an object stream without expanding it, for a file that is still encrypted.
 fn place_direct_container(
-    bytes: &[u8],
+    bytes: &Bytes,
     base: usize,
     container: u32,
     records: &BTreeMap<u32, XrefRecord>,
@@ -619,7 +628,7 @@ fn place_direct_container(
 
 /// Parses one object written directly in the file and stores it under its number.
 fn place_direct(
-    bytes: &[u8],
+    bytes: &Bytes,
     base: usize,
     number: u32,
     offset: u64,
@@ -653,7 +662,7 @@ fn place_direct(
 
 /// Expands one object stream and stores everything it carried.
 fn place_from_container(
-    bytes: &[u8],
+    bytes: &Bytes,
     base: usize,
     container: u32,
     records: &BTreeMap<u32, XrefRecord>,
@@ -727,7 +736,7 @@ pub struct XrefSection {
 /// stream is an indirect object whose dictionary carries `/W` and `/Index` and whose
 /// payload is filtered, so it can only be read once objects and filters exist.
 pub fn read_xref_section(
-    bytes: &[u8],
+    bytes: &Bytes,
     offset: usize,
     arena: &PdfArena,
     decisions: &mut DecisionLog,
@@ -934,7 +943,8 @@ mod tests {
     fn read(src: &[u8]) -> (IndirectObject, DecisionLog) {
         let arena = PdfArena::new();
         let mut log = DecisionLog::default();
-        let obj = parse_indirect_at(src, 0, &arena, &mut log).expect("should parse");
+        let obj = parse_indirect_at(&Bytes::copy_from_slice(src), 0, &arena, &mut log)
+            .expect("should parse");
         (obj, log)
     }
 
@@ -1017,7 +1027,8 @@ mod tests {
         let arena = PdfArena::new();
         let mut log = DecisionLog::default();
         let src = b"1 0 obj\n<< /Foo 1 >>\nstream\nHELLO";
-        let obj = parse_indirect_at(src, 0, &arena, &mut log).expect("should still parse");
+        let obj = parse_indirect_at(&Bytes::copy_from_slice(src), 0, &arena, &mut log)
+            .expect("should still parse");
         let Object::Stream(..) = obj.object else { panic!("expected a stream") };
         assert_eq!(log.entries()[0].severity, crate::interpretation::Severity::Violation);
     }
@@ -1122,14 +1133,25 @@ mod tests {
     fn an_offset_past_the_end_is_refused() {
         let arena = PdfArena::new();
         let mut log = DecisionLog::default();
-        assert!(parse_indirect_at(b"1 0 obj\n1\nendobj", 900, &arena, &mut log).is_err());
+        assert!(
+            parse_indirect_at(
+                &Bytes::copy_from_slice(b"1 0 obj\n1\nendobj"),
+                900,
+                &arena,
+                &mut log
+            )
+            .is_err()
+        );
     }
 
     #[test]
     fn a_non_object_at_the_offset_is_refused() {
         let arena = PdfArena::new();
         let mut log = DecisionLog::default();
-        assert!(parse_indirect_at(b"trailer\n<<>>", 0, &arena, &mut log).is_err());
+        assert!(
+            parse_indirect_at(&Bytes::copy_from_slice(b"trailer\n<<>>"), 0, &arena, &mut log)
+                .is_err()
+        );
     }
 
     /// Builds a file whose second revision replaces object 2 and deletes object 3.
@@ -1185,21 +1207,21 @@ mod tests {
     #[test]
     fn a_newer_revision_wins_over_the_object_stream_that_first_held_it() {
         let bytes = incrementally_updated();
-        let doc = load_document(&bytes).expect("the file should read");
+        let doc = load_document(&Bytes::copy_from_slice(&bytes[..])).expect("the file should read");
         assert_eq!(value_of(&doc.arena, 2).as_deref(), Some("new"));
     }
 
     #[test]
     fn an_object_freed_by_a_later_revision_is_not_resurrected() {
         let bytes = incrementally_updated();
-        let doc = load_document(&bytes).expect("the file should read");
+        let doc = load_document(&Bytes::copy_from_slice(&bytes[..])).expect("the file should read");
         assert!(matches!(doc.arena.get_object(Handle::new(3)), Some(Object::Null) | None));
     }
 
     #[test]
     fn an_object_handle_is_its_object_number() {
         let bytes = incrementally_updated();
-        let doc = load_document(&bytes).expect("the file should read");
+        let doc = load_document(&Bytes::copy_from_slice(&bytes[..])).expect("the file should read");
         // Object 4 is the container; it stays addressable under its own number.
         assert!(matches!(doc.arena.get_object(Handle::new(4)), Some(Object::Stream(_, _))));
     }
@@ -1257,7 +1279,7 @@ mod tests {
     #[test]
     fn an_object_only_a_container_holds_is_recovered_when_the_section_is_not() {
         let bytes = container_behind_an_unreadable_section();
-        let doc = load_document(&bytes).expect("the file should read");
+        let doc = load_document(&Bytes::copy_from_slice(&bytes[..])).expect("the file should read");
         // Object 6 is written nowhere in the bytes as `6 0 obj`, so the scan beside this
         // one cannot find it. Before the containers were expanded it stayed null, which
         // is how `UnknownFilter-xrefstm.pdf` came to report no pages.
@@ -1267,7 +1289,7 @@ mod tests {
     #[test]
     fn a_recovered_container_does_not_override_a_section_that_was_read() {
         let bytes = container_behind_an_unreadable_section();
-        let doc = load_document(&bytes).expect("the file should read");
+        let doc = load_document(&Bytes::copy_from_slice(&bytes[..])).expect("the file should read");
         // ADR-0006, in the recovery path: the readable section puts object 5 in the file,
         // and the container's older copy of it must not win. Adopting a container
         // wholesale rather than hole by hole would return "in container" here.
@@ -1277,7 +1299,7 @@ mod tests {
     #[test]
     fn adopting_a_container_is_recorded_rather_than_done_quietly() {
         let bytes = container_behind_an_unreadable_section();
-        let doc = load_document(&bytes).expect("the file should read");
+        let doc = load_document(&Bytes::copy_from_slice(&bytes[..])).expect("the file should read");
         let entries = doc.decisions.entries();
         let adopted = entries
             .iter()
@@ -1295,7 +1317,8 @@ mod tests {
         let extra = "8 0 obj\n<< /Length 9 >>\nstream\n(/ObjStm)\nendstream\nendobj\n";
         let at = bytes.windows(9).position(|w| w == b"startxref").expect("has a startxref");
         bytes.splice(at..at, extra.bytes());
-        let doc = load_document(&bytes).expect("the file should still read");
+        let doc =
+            load_document(&Bytes::copy_from_slice(&bytes[..])).expect("the file should still read");
         assert_eq!(value_of(&doc.arena, 6).as_deref(), Some("only here"));
         assert!(
             !doc.decisions
@@ -1313,7 +1336,8 @@ mod tests {
         let mut log = DecisionLog::default();
         // /Length says 3, but the data is five bytes.
         let bytes = b"1 0 obj\n<< /Length 3 >>\nstream\nabcde\nendstream\nendobj\n";
-        let parsed = parse_indirect_at(bytes, 0, &arena, &mut log).expect("parses");
+        let parsed = parse_indirect_at(&Bytes::copy_from_slice(&bytes[..]), 0, &arena, &mut log)
+            .expect("parses");
         let Object::Stream(_, data) = parsed.object else { panic!("expected a stream") };
         let SublimatedData::Raw(payload) = data.as_ref() else { panic!("expected raw data") };
         assert_eq!(&payload[..], b"abcde");
@@ -1326,7 +1350,8 @@ mod tests {
         let mut log = DecisionLog::default();
         // The data ends in CR, so scanning back over the EOL would eat one real byte.
         let bytes = b"1 0 obj\n<< /Length 3 >>\nstream\nab\r\nendstream\nendobj\n";
-        let parsed = parse_indirect_at(bytes, 0, &arena, &mut log).expect("parses");
+        let parsed = parse_indirect_at(&Bytes::copy_from_slice(&bytes[..]), 0, &arena, &mut log)
+            .expect("parses");
         let Object::Stream(_, data) = parsed.object else { panic!("expected a stream") };
         let SublimatedData::Raw(payload) = data.as_ref() else { panic!("expected raw data") };
         assert_eq!(&payload[..], b"ab\r");

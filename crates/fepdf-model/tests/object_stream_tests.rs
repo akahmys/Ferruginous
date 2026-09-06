@@ -99,7 +99,8 @@ fn a_stream_object_is_never_packed() {
 #[test]
 fn a_packed_document_reads_back_whole() {
     let packed = write(true);
-    let read = fepdf_model::reader::load_document(&packed).expect("the file should parse");
+    let read = fepdf_model::reader::load_document(&bytes::Bytes::copy_from_slice(&packed))
+        .expect("the file should parse");
     let arena = &read.arena;
 
     let catalog = read

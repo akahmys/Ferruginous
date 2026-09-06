@@ -37,7 +37,12 @@ fn collect_records(
     if let Some(start) = xref::find_startxref(data) {
         for at in xref::section_chain(data, start) {
             if let Ok(offset) = usize::try_from(at)
-                && let Ok(section) = reader::read_xref_section(data, offset, arena, log)
+                && let Ok(section) = reader::read_xref_section(
+                    &bytes::Bytes::copy_from_slice(data),
+                    offset,
+                    arena,
+                    log,
+                )
             {
                 records.extend(section.entries);
             }
@@ -65,7 +70,9 @@ fn read_direct(
         let Some(offset) = record.offset().and_then(|o| usize::try_from(o).ok()) else {
             continue;
         };
-        if reader::parse_indirect_at(data, offset, arena, log).is_ok() {
+        if reader::parse_indirect_at(&bytes::Bytes::copy_from_slice(data), offset, arena, log)
+            .is_ok()
+        {
             ok += 1;
         } else {
             failed += 1;
@@ -97,7 +104,8 @@ fn read_compressed(
         else {
             continue;
         };
-        if let Ok(obj) = reader::parse_indirect_at(data, offset, arena, log)
+        if let Ok(obj) =
+            reader::parse_indirect_at(&bytes::Bytes::copy_from_slice(data), offset, arena, log)
             && let Ok(inner) = reader::expand_object_stream(&obj.object, arena, log)
         {
             expanded += u32::try_from(inner.len()).unwrap_or(0);

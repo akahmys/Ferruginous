@@ -21,7 +21,7 @@ fn main() {
     );
     for path in &paths {
         let Ok(data) = std::fs::read(path) else { continue };
-        let Ok(raw) = reader::load_document(&data) else {
+        let Ok(raw) = reader::load_document(&bytes::Bytes::copy_from_slice(&data)) else {
             println!("{:<22} unreadable", short(path));
             continue;
         };

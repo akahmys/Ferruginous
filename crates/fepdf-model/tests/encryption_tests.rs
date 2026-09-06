@@ -31,7 +31,8 @@ fn round_trip(value: &[u8]) -> Vec<u8> {
         writer.finish(root, None).expect("a document");
     }
 
-    let read = fepdf_model::reader::load_document(&out).expect("the file should parse");
+    let read = fepdf_model::reader::load_document(&bytes::Bytes::copy_from_slice(&out))
+        .expect("the file should parse");
     let catalog = read
         .trailer
         .and_then(|t| read.arena.get_dict(t))
