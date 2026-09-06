@@ -2,25 +2,8 @@
 
 use fepdf::PdfDocument;
 
-fn assemble(bodies: &[String]) -> Vec<u8> {
-    let mut out = b"%PDF-2.0\n".to_vec();
-    let mut offsets = Vec::new();
-    for (i, body) in bodies.iter().enumerate() {
-        offsets.push(out.len());
-        out.extend_from_slice(format!("{} 0 obj\n{body}\nendobj\n", i + 1).as_bytes());
-    }
-    let table_at = out.len();
-    let size = bodies.len() + 1;
-    out.extend_from_slice(format!("xref\n0 {size}\n0000000000 65535 f \n").as_bytes());
-    for offset in &offsets {
-        out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
-    }
-    out.extend_from_slice(
-        format!("trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{table_at}\n%%EOF\n")
-            .as_bytes(),
-    );
-    out
-}
+mod common;
+use common::assemble;
 
 fn cjk_doc(registry: &str, ordering: &str, supplement: i32, hex_cids: &str) -> Vec<u8> {
     let content = format!("BT /F1 16 Tf 50 750 Td <{hex_cids}> Tj ET");

@@ -22,6 +22,9 @@ use fepdf_model::graphics::TextRenderingMode;
 use kurbo::{Affine, BezPath, Shape};
 use std::sync::Arc;
 
+mod common;
+use common::assemble;
+
 /// Everything the interpreter asked for, in the order it asked.
 #[derive(Default)]
 struct Recorder {
@@ -117,27 +120,6 @@ impl RenderBackend for Recorder {
 const TOP_LEFT: &str = "0 0 0 rg 0 100 100 100 re f\n";
 /// The square that is never conditional, in the bottom-right.
 const BOTTOM_RIGHT: &str = "0 0 0 rg 100 0 100 100 re f\n";
-
-/// Assembles a one-page file from object bodies, numbered from 1.
-fn assemble(bodies: &[String]) -> Vec<u8> {
-    let mut out = b"%PDF-2.0\n".to_vec();
-    let mut offsets = Vec::new();
-    for (i, body) in bodies.iter().enumerate() {
-        offsets.push(out.len());
-        out.extend_from_slice(format!("{} 0 obj\n{body}\nendobj\n", i + 1).as_bytes());
-    }
-    let table_at = out.len();
-    let size = bodies.len() + 1;
-    out.extend_from_slice(format!("xref\n0 {size}\n0000000000 65535 f \n").as_bytes());
-    for offset in &offsets {
-        out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
-    }
-    out.extend_from_slice(
-        format!("trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{table_at}\n%%EOF\n")
-            .as_bytes(),
-    );
-    out
-}
 
 /// A stream object with `extra` merged into its dictionary.
 fn stream(extra: &str, data: &str) -> String {

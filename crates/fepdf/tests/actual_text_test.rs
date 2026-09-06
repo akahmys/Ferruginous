@@ -7,29 +7,12 @@
 
 use fepdf::{IngestionOptions, PdfDocument};
 
+mod common;
+use common::assemble;
+
 /// A stream object with `extra` merged into its dictionary.
 fn stream(extra: &str, data: &str) -> String {
     format!("<< {extra} /Length {} >>\nstream\n{data}endstream", data.len())
-}
-
-fn assemble(bodies: &[String]) -> Vec<u8> {
-    let mut out = b"%PDF-2.0\n".to_vec();
-    let mut offsets = Vec::new();
-    for (i, body) in bodies.iter().enumerate() {
-        offsets.push(out.len());
-        out.extend_from_slice(format!("{} 0 obj\n{body}\nendobj\n", i + 1).as_bytes());
-    }
-    let table_at = out.len();
-    let size = bodies.len() + 1;
-    out.extend_from_slice(format!("xref\n0 {size}\n0000000000 65535 f \n").as_bytes());
-    for offset in &offsets {
-        out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
-    }
-    out.extend_from_slice(
-        format!("trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{table_at}\n%%EOF\n")
-            .as_bytes(),
-    );
-    out
 }
 
 /// The text a one-page document extracts, with `resources` on the page.

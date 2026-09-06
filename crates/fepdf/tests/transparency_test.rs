@@ -20,6 +20,9 @@ use fepdf_model::interpretation::Severity;
 use kurbo::{Affine, BezPath, Shape};
 use std::sync::Arc;
 
+mod common;
+use common::assemble;
+
 /// What the interpreter asked the backend to do, in the order it asked.
 #[derive(Default)]
 struct Recorder {
@@ -85,26 +88,6 @@ impl RenderBackend for Recorder {
     fn set_text_render_mode(&mut self, _m: TextRenderingMode) {}
     fn set_char_spacing(&mut self, _s: f64) {}
     fn set_word_spacing(&mut self, _s: f64) {}
-}
-
-fn assemble(bodies: &[String]) -> Vec<u8> {
-    let mut out = b"%PDF-2.0\n".to_vec();
-    let mut offsets = Vec::new();
-    for (i, body) in bodies.iter().enumerate() {
-        offsets.push(out.len());
-        out.extend_from_slice(format!("{} 0 obj\n{body}\nendobj\n", i + 1).as_bytes());
-    }
-    let table_at = out.len();
-    let size = bodies.len() + 1;
-    out.extend_from_slice(format!("xref\n0 {size}\n0000000000 65535 f \n").as_bytes());
-    for offset in &offsets {
-        out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
-    }
-    out.extend_from_slice(
-        format!("trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{table_at}\n%%EOF\n")
-            .as_bytes(),
-    );
-    out
 }
 
 /// One page holding all four questions at once, so an assertion about any of them also

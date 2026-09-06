@@ -23,23 +23,8 @@
 
 use fepdf::PdfDocument;
 
-fn assemble(bodies: &[String]) -> Vec<u8> {
-    use std::fmt::Write as _;
-    let mut out = String::from("%PDF-2.0\n");
-    let mut offsets = Vec::new();
-    for (index, body) in bodies.iter().enumerate() {
-        offsets.push(out.len());
-        let _ = write!(out, "{} 0 obj\n{body}\nendobj\n", index + 1);
-    }
-    let table_at = out.len();
-    let size = bodies.len() + 1;
-    let _ = write!(out, "xref\n0 {size}\n0000000000 65535 f \n");
-    for offset in &offsets {
-        let _ = writeln!(out, "{offset:010} 00000 n ");
-    }
-    let _ = write!(out, "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{table_at}\n%%EOF\n");
-    out.into_bytes()
-}
+mod common;
+use common::assemble;
 
 /// Four runs, one per line, a hundred points apart so a rectangle can name exactly one.
 fn four_runs() -> Vec<u8> {

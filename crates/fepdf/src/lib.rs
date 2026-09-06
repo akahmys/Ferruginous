@@ -1308,12 +1308,12 @@ impl PdfDocument {
 
     /// Prints a textual representation of the logical structure tree.
     pub fn print_structure(&self) -> PdfResult<String> {
-        let root_opt = self.inner.get_structure_root()?;
-        if let Some(root) = root_opt {
-            Ok(format!("Structure Tree Root found: {root:?}"))
-        } else {
-            Ok("No logical structure found.".into())
-        }
+        let Some(root) = self.extract_struct_tree() else {
+            return Ok("No logical structure found.".into());
+        };
+        let mut out = String::new();
+        write_struct_node(&root, 0, &mut out);
+        Ok(out)
     }
 
     /// Renders one indirect object as human-readable text, for `fepdf debug dump`.
@@ -1681,6 +1681,36 @@ impl PdfDocument {
 ///
 /// `resolve_names` renders name values as `Name(/Foo)` rather than debug output,
 /// which is what the dictionary dump wants and the stream dump does not.
+/// One structure element per line, indented by depth.
+///
+/// **`print_structure` printed one line until 2026-09-06** — `Structure Tree Root found:
+/// Handle<Object>(93)` on `samples/fugaku.pdf`, which is tagged — under a CLI subcommand
+/// documented "Dump hierarchical logical structure tree". It asked for the root handle
+/// and formatted it; nothing walked. `StructureTreeVisitor` is the walk it now uses, and
+/// the GUI and `fepdf-mcp`'s struct-tree resource had been reading it all along.
+///
+/// A handle's `Debug` was also the whole of the old output, which put the storage model
+/// into a printed report — the vocabulary Rule A keeps out of frontends, arriving by a
+/// door that rule does not watch.
+///
+/// The tag is what the element *is*; `/Alt` and the page follow it because they are what
+/// someone reading an accessibility tree is looking for, and a tree showing neither would
+/// be a list of tag names.
+fn write_struct_node(node: &StructureTreeNode, depth: usize, out: &mut String) {
+    use std::fmt::Write as _;
+    let _ = write!(out, "{:indent$}{}", "", node.tag, indent = depth * 2);
+    if let Some(page) = node.page_index {
+        let _ = write!(out, "  page {}", page + 1);
+    }
+    if let Some(alt) = &node.alt_text {
+        let _ = write!(out, "  /Alt {alt:?}");
+    }
+    out.push('\n');
+    for child in &node.children {
+        write_struct_node(child, depth + 1, out);
+    }
+}
+
 fn describe_dict_entries(
     arena: &PdfArena,
     dict: &BTreeMap<Handle<PdfName>, Object>,
