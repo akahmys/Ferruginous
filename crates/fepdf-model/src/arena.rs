@@ -35,8 +35,19 @@ struct ArenaInner {
     name_map: RwLock<BTreeMap<PdfName, Handle<PdfName>>>,
     /// The document version (e.g., 1.7, 2.0).
     version: RwLock<f32>,
-    /// Index for fast lookup: Map of Object value to list of indirect handles containing that value.
-    object_index: RwLock<BTreeMap<Object, Vec<Handle<Object>>>>,
+    /// Object value to the handles holding it, built on the first [`PdfArena::find_object`]
+    /// and `None` until then.
+    ///
+    /// **Eagerly maintained, this was 58% of the time to read a large file.** Every
+    /// `alloc_object` and `set_object` inserted into it, which is every object in the
+    /// document; `samples/intel_sdm.pdf` has 332,386 entries in its first cross-reference
+    /// section, and building the map cost 3.6 s of a 6.2 s `inspect info` — a command
+    /// that never queries it. Two call sites do: an annotation resolving its appearance
+    /// stream (12.5.5) and a page resolving its content stream.
+    ///
+    /// Once built it is kept current, so the cost is paid once by whoever asks and never
+    /// by anyone who does not.
+    object_index: RwLock<Option<BTreeMap<Object, Vec<Handle<Object>>>>>,
 }
 
 impl PdfArena {
@@ -118,8 +129,9 @@ impl PdfArena {
         let h = Handle::new(objects.len() as u32);
         objects.push(ObjectEntry { object: object.clone(), generation: 0 });
 
-        let mut idx = self.inner.object_index.write();
-        idx.entry(object).or_default().push(h);
+        if let Some(idx) = self.inner.object_index.write().as_mut() {
+            idx.entry(object).or_default().push(h);
+        }
         h
     }
 
@@ -157,18 +169,19 @@ impl PdfArena {
             }
             e.object = object.clone();
 
-            let mut idx = self.inner.object_index.write();
-            // Remove from old entry list
-            if let Some(list) = idx.get_mut(&old_val) {
-                if let Some(pos) = list.iter().position(|&x| x == handle) {
-                    list.remove(pos);
+            if let Some(idx) = self.inner.object_index.write().as_mut() {
+                // Remove from old entry list
+                if let Some(list) = idx.get_mut(&old_val) {
+                    if let Some(pos) = list.iter().position(|&x| x == handle) {
+                        list.remove(pos);
+                    }
+                    if list.is_empty() {
+                        idx.remove(&old_val);
+                    }
                 }
-                if list.is_empty() {
-                    idx.remove(&old_val);
-                }
+                // Add to new entry list
+                idx.entry(object).or_default().push(handle);
             }
-            // Add to new entry list
-            idx.entry(object).or_default().push(handle);
         }
     }
 
@@ -204,9 +217,38 @@ impl PdfArena {
     }
 
     /// Searches for an existing indirect object that matches the provided object.
+    ///
+    /// Builds the reverse index on the first call. Handles are pushed in allocation order
+    /// so the lowest one still wins, which is what the eagerly built map answered.
     pub fn find_object(&self, object: &Object) -> Option<Handle<Object>> {
-        let idx = self.inner.object_index.read();
-        idx.get(object).and_then(|list| list.first().copied())
+        if self.inner.object_index.read().is_none() {
+            // **Built before the index lock is taken, not inside it.** `alloc_object` and
+            // `set_object` lock `objects` and then `object_index`; taking them the other
+            // way round here would be a lock-order inversion and could deadlock against
+            // either. Two threads racing to build both succeed and the second's work is
+            // dropped, which costs a wasted pass and never a wrong answer.
+            let built: BTreeMap<Object, Vec<Handle<Object>>> = {
+                let objects = self.inner.objects.read();
+                let mut built = BTreeMap::new();
+                for (index, entry) in objects.iter().enumerate() {
+                    built
+                        .entry(entry.object.clone())
+                        .or_insert_with(Vec::new)
+                        .push(Handle::new(index as u32));
+                }
+                built
+            };
+            let mut guard = self.inner.object_index.write();
+            if guard.is_none() {
+                *guard = Some(built);
+            }
+        }
+        self.inner
+            .object_index
+            .read()
+            .as_ref()
+            .and_then(|idx| idx.get(object))
+            .and_then(|list| list.first().copied())
     }
 
     /// Number of object slots allocated.

@@ -139,3 +139,4 @@ quietly wrong — which is the failure this log exists to make visible.
 | 0072 | [A page selection nobody could parse meant every page](0072-a-page-selection-nobody-could-parse-meant-every-page.md) | With 0071 |
 | 0073 | [Rule 13's other half, and a type that was a check all along](0073-rule-13s-other-half-and-three-declarations-that-were-checks.md) | Closes 0071's open items |
 | 0074 | [The reader copied the rest of the file once per object](0074-the-reader-copied-the-file-once-per-object.md) | Closes 0071's last item |
+| 0075 | [Two costs a caller never asked for](0075-two-costs-a-caller-never-asked-for.md) | Answers 0074, closes 0061's `Drop` |
