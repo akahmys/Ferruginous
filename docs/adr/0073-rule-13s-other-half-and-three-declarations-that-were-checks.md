@@ -107,4 +107,4 @@ Add `PdfType3Font` and dispatch on it. Keep `PdfFontDescriptor`'s metrics, with 
   from the file, so it passed on a dangling reference and proved nothing.
 - **The arena's clone-on-read was the wrong suspect**, which a symbolised profile settled
   the same day — see [ADR-0074](0074-the-reader-copied-the-file-once-per-object.md). The
-  33.7 s was `parse_indirect_at` copying the rest of the file once per object.
+  17.1 s was `parse_indirect_at` copying the rest of the file once per object.

@@ -13,7 +13,7 @@ and the note said the time cost was **unmeasured, so profile before touching any
 
 Profiling says the hypothesis was wrong.
 
-`fepdf inspect info samples/intel_sdm.pdf` (24 MB, 5,057 pages) took **33.7 s**. A
+`fepdf inspect info samples/intel_sdm.pdf` (24 MB, 5,057 pages) took **17.1 s**. A
 sampling profile of the main thread:
 
 ```
@@ -54,11 +54,19 @@ holds a `Bytes` and now passes it through untouched.
 
 ## Consequences
 
-| | before | after |
+| `inspect info` | before | after |
 | --- | ---: | ---: |
-| `inspect info samples/intel_sdm.pdf` (5,057 pages) | 33.73 s | **6.17 s** |
-| `inspect info samples/fy05.pdf` (846 pages) | 2.71 s | **1.05 s** |
-| `inspect info samples/constitution.pdf` | 0.02 s | 0.01 s |
+| `samples/intel_sdm.pdf` (5,057 pages) | 17.05 s | **5.50 s** |
+| `samples/fy05.pdf` (846 pages) | 1.86 s | **1.05 s** |
+
+**How these were measured, because the first version of this record got it wrong.** Four
+consecutive runs of each build, the first discarded, with nothing else running. The
+figures originally published here — 33.73 s and 6.17 s — were single runs, and the 33.73 s
+was taken while `verify_compliance.sh` and `cargo test --workspace` were competing for the
+same cores. That inflated the *baseline* by nearly 2×, and with it the improvement. The
+first run after a rebuild also costs about 0.5 s of cold start on this machine, which is
+why it is discarded rather than averaged in. The corrected numbers were taken by checking
+out each commit, rebuilding, and measuring the same way.
 
 - **The output is unchanged, checked rather than assumed.** `inspect info` over all nine
   samples produces byte-identical output before and after, compared by MD5 against a

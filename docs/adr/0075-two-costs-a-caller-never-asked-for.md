@@ -7,14 +7,14 @@
 ## Context
 
 [ADR-0074](0074-the-reader-copied-the-file-once-per-object.md) took `inspect info` on
-`samples/intel_sdm.pdf` (24 MB, 5,057 pages) from 33.7 s to 6.2 s and said the arena was
+`samples/intel_sdm.pdf` (24 MB, 5,057 pages) from 17.1 s to 5.5 s and said the arena was
 "not exonerated, only displaced". The next profile answers it, and the answer is again
 not the one the standing hypothesis named.
 
 ### The reverse index was 58% of the read, for a question nothing asked
 
-A symbolised profile of the 6.2 s put **1,795 of the main thread's 2,548 samples — 70% —
-in `PdfArena::set_object`**, all of them `_platform_memmove`. Not `get_dict` cloning on
+A symbolised profile put **1,795 of the main thread's 2,548 samples — 70% — in
+`PdfArena::set_object`**, all of them `_platform_memmove`. Not `get_dict` cloning on
 read, which is what ADR-0071 recorded as the suspect and what 214 call sites made look
 likely. The write path, maintaining `object_index`: a `BTreeMap<Object, Vec<Handle>>` from
 an object's *value* to the handles holding it, updated on every `alloc_object` and every
@@ -23,8 +23,8 @@ an object's *value* to the handles holding it, updated on every `alloc_object` a
 Two call sites query it: an annotation resolving its appearance stream and a page
 resolving its content stream. `inspect info` queries it never.
 
-Measured by removing the maintenance outright: **6.17 s → 2.58 s.** The index cost 3.6
-seconds of a 6.2 second read.
+Measured by removing the maintenance outright, the index accounted for most of what was
+left: the read went from 5.50 s to 1.99 s once it was made lazy.
 
 It is now built on the first `find_object` and kept current after that, so the cost is
 paid once by whoever asks and never by anyone who does not. Building it **before** taking
@@ -53,10 +53,17 @@ Build `object_index` lazily. Give `OutlineNode` an iterative `Drop`.
 
 ## Consequences
 
-| `inspect info` | at session start | after ADR-0074 | now |
+| `inspect info` | before both | after ADR-0074 | now |
 | --- | ---: | ---: | ---: |
-| `samples/intel_sdm.pdf` | 33.73 s | 6.17 s | **2.67 s** |
-| `samples/fy05.pdf` | 2.71 s | 1.05 s | **1.03 s** |
+| `samples/intel_sdm.pdf` | 17.05 s | 5.50 s | **1.99 s** |
+| `samples/fy05.pdf` | 1.86 s | 1.05 s | **1.04 s** |
+
+Four consecutive runs of each build, the first discarded, nothing else running; each
+commit checked out and rebuilt to measure it. **The figures first published in this record
+and in ADR-0074 were wrong** — 33.73 s / 6.17 s / 2.67 s — because the baseline was taken
+while the audit and the test suite were running, and every figure was a single first run
+after a rebuild, which costs about 0.5 s of cold start here. The improvement is real and
+is 8.6×, not the 12.6× those numbers implied.
 
 - **Output is unchanged, compared by MD5 over all nine samples** against the values
   recorded before either change.
@@ -66,10 +73,15 @@ Build `object_index` lazily. Give `OutlineNode` an iterative `Drop`.
   holds is still absent.
 - **`a_deep_outline_is_released_without_recursing` fails by aborting the test binary**,
   not by reddening a line. That is what the defect does, and the file says so.
-- **What is left is parallel.** Of 1,504 samples in the 2.67 s run, 709 are the main
-  thread in `_pthread_cond_wait` under `ParallelRefinery::refine_all` — waiting on rayon
-  workers. The next question about this command is what those workers do, which is a
-  different measurement from this one.
+- **What is left is not the parallel section.** Of 1,504 samples, 709 are the main thread
+  in `_pthread_cond_wait` under `ParallelRefinery::refine_all` — but sampling the worker
+  threads finds every one of them in `_pthread_cond_wait` too, idle. Splitting the command
+  by phase puts `inspect structure` (the reader alone) at 0.58 s against `inspect info`'s
+  1.99 s, so the remaining second and a half is in ingestion ahead of the parallel work,
+  not in the work itself.
+- **Measure with nothing else running.** This record had to be corrected once for
+  publishing a baseline taken under load; the method is now stated with the numbers so the
+  next comparison is made the same way.
 - **The standing hypothesis was wrong twice.** ADR-0071 recorded "the arena clones on
   every read" with `get_dict`'s 214 call sites as the evidence; the cost was first the
   reader copying the file, then the arena's *write* path maintaining an index. Both times
