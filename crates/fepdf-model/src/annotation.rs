@@ -28,6 +28,7 @@
 //! both corpora that leaves `/Vertices` on a `/Polygon`, `/Sound` on a `/Sound`,
 //! `/FixedPrint` on a `/Watermark` and eleven more, each on one annotation.
 
+use crate::access::dict_of;
 use crate::arena::PdfArena;
 use crate::error::{PdfError, PdfResult};
 use crate::graphics::{BlendMode, Rect};
@@ -35,7 +36,6 @@ use crate::handle::Handle;
 use crate::object::{FromPdfObject, Object, PdfName, PdfSchema};
 use fepdf_macros::FromPdfObject;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 
 /// Entries common to every annotation dictionary (12.5.2, Table 166).
 ///
@@ -557,13 +557,6 @@ pub fn entries_read_for(subtype: &str) -> Vec<&'static str> {
     keys.sort_unstable();
     keys.dedup();
     keys
-}
-
-fn dict_of(arena: &PdfArena, object: &Object) -> Option<BTreeMap<Handle<PdfName>, Object>> {
-    match object.resolve(arena) {
-        Object::Dictionary(h) | Object::Stream(h, _) => arena.get_dict(h),
-        _ => None,
-    }
 }
 
 fn array_of(arena: &PdfArena, object: &Object) -> Option<Vec<Object>> {

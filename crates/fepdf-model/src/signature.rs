@@ -28,7 +28,7 @@ use crate::object::Object;
 use crate::reader;
 use serde::{Deserialize, Serialize};
 
-use crate::access::Dict;
+use crate::access::{Dict, text_of};
 
 /// What checking one signature showed.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -223,12 +223,4 @@ fn signature_fields(arena: &PdfArena, catalog: &Dict) -> Vec<Dict> {
     }
     out.reverse();
     out
-}
-
-fn text_of(arena: &PdfArena, object: &Object) -> Option<String> {
-    match object.resolve(arena) {
-        Object::Text(s) => Some(s),
-        Object::String(b) | Object::Hex(b) => Some(crate::refine::text::recover_string(&b)),
-        _ => None,
-    }
 }

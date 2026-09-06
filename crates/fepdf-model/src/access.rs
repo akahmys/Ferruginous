@@ -50,6 +50,34 @@ pub(crate) fn dict_of(arena: &PdfArena, object: &Object) -> Option<Dict> {
     arena.get_dict(object.resolve(arena).as_dict_handle()?)
 }
 
+/// The text `object` is or refers to, decoded as 7.9.2.2 defines.
+///
+/// Four copies of this existed — `actions::text_of`, `signature::text_of`,
+/// `interactive::string_of` and the body of `text_at` — and one of them did **not**
+/// resolve: `actions::text_of` took `arena` and wrote `let _ = arena;`, requiring every
+/// caller to resolve first. All four of its callers did, so nothing was wrong today; a
+/// fifth that did not would have read `None` from a string that was there. That is
+/// [ADR-0063](../../../docs/adr/0063-one-set-of-accessors-because-two-disagreed-about-one-dictionary.md)'s
+/// finding, and this is the file that record created.
+pub(crate) fn text_of(arena: &PdfArena, object: &Object) -> Option<String> {
+    match object.resolve(arena) {
+        Object::Text(t) => Some(t),
+        Object::String(b) | Object::Hex(b) => Some(crate::refine::text::recover_string(&b)),
+        _ => None,
+    }
+}
+
+/// Every number in the array at `key`, or `None` if any entry is not one.
+///
+/// All-or-nothing on purpose: the callers are `/Domain`, `/Range`, `/C0`, `/Decode` and
+/// the mesh dictionaries, where a partial list is not a shorter list but a different
+/// function. Two byte-identical copies of this lived in `function/mod.rs` and
+/// `graphics/mesh.rs`.
+pub(crate) fn numbers_at(arena: &PdfArena, dict: &Dict, key: &str) -> Option<Vec<f64>> {
+    let items = array_of(arena, dict.get(&arena.name(key)))?;
+    items.iter().map(|item| item.resolve(arena).as_f64()).collect()
+}
+
 /// The dictionary at `key`.
 pub(crate) fn dict_at(arena: &PdfArena, dict: &Dict, key: &str) -> Option<Dict> {
     dict_of(arena, dict.get(&arena.name(key))?)
@@ -98,11 +126,7 @@ pub(crate) fn bytes_at(arena: &PdfArena, dict: &Dict, key: &str) -> Option<Vec<u
 
 /// The text string at `key`, decoded as 7.9.2.2 defines one.
 pub(crate) fn text_at(arena: &PdfArena, dict: &Dict, key: &str) -> Option<String> {
-    match entry_at(arena, dict, key)? {
-        Object::Text(t) => Some(t),
-        Object::String(b) | Object::Hex(b) => Some(crate::refine::text::recover_string(&b)),
-        _ => None,
-    }
+    text_of(arena, &entry_at(arena, dict, key)?)
 }
 
 #[cfg(test)]
@@ -212,5 +236,32 @@ mod chains {
         dict.insert(arena.name("V"), Object::Reference(looped));
 
         assert_eq!(integer_at(&arena, &dict, "V"), None);
+    }
+
+    /// `text_of` follows a reference, which one of the four copies it replaces did not.
+    #[test]
+    fn text_is_read_through_a_reference() {
+        let arena = PdfArena::new();
+        let target = arena.alloc_object(Object::Text("Chapter One".to_string()));
+
+        assert_eq!(
+            text_of(&arena, &Object::Reference(target)).as_deref(),
+            Some("Chapter One"),
+            "an indirect string is the string it names"
+        );
+        assert_eq!(
+            text_of(&arena, &Object::Text("direct".to_string())).as_deref(),
+            Some("direct"),
+            "and a direct one is still itself"
+        );
+    }
+
+    /// A hex string reaches 7.9.2.2's decoding, not `from_utf8_lossy`.
+    #[test]
+    fn a_utf16_string_is_recovered_rather_than_mangled() {
+        let arena = PdfArena::new();
+        // UTF-16BE with the byte-order mark 7.9.2.2 requires.
+        let utf16 = bytes::Bytes::from(vec![0xFE, 0xFF, 0x00, 0x41, 0x00, 0x42]);
+        assert_eq!(text_of(&arena, &Object::Hex(utf16)).as_deref(), Some("AB"));
     }
 }

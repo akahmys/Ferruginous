@@ -174,11 +174,12 @@ pub(crate) struct Bounds {
 
 impl Bounds {
     fn parse(dict: &Dict, arena: &PdfArena) -> Option<Self> {
-        let domain = number_array(dict, arena, "Domain")?;
+        let domain = crate::access::numbers_at(arena, dict, "Domain")?;
         if domain.len() < 2 || domain.len() % 2 != 0 {
             return None;
         }
-        let range = number_array(dict, arena, "Range").filter(|r| r.len() >= 2 && r.len() % 2 == 0);
+        let range = crate::access::numbers_at(arena, dict, "Range")
+            .filter(|r| r.len() >= 2 && r.len() % 2 == 0);
         Some(Self { domain, range })
     }
 
@@ -225,8 +226,8 @@ impl ExponentialFunction {
         // Table 40: both default to a single component, so `/C0` and `/C1` absent means
         // the function maps x to x. This is the form a `/Separation` over `/DeviceGray`
         // is usually written in.
-        let c0 = number_array(dict, arena, "C0").unwrap_or_else(|| vec![0.0_f64]);
-        let c1 = number_array(dict, arena, "C1").unwrap_or_else(|| vec![1.0_f64]);
+        let c0 = crate::access::numbers_at(arena, dict, "C0").unwrap_or_else(|| vec![0.0_f64]);
+        let c1 = crate::access::numbers_at(arena, dict, "C1").unwrap_or_else(|| vec![1.0_f64]);
         if c0.is_empty() || c0.len() != c1.len() {
             return None;
         }
@@ -274,8 +275,8 @@ impl StitchingFunction {
         if k == 0 {
             return None;
         }
-        let splits = number_array(dict, arena, "Bounds").unwrap_or_default();
-        let encode = number_array(dict, arena, "Encode")?;
+        let splits = crate::access::numbers_at(arena, dict, "Bounds").unwrap_or_default();
+        let encode = crate::access::numbers_at(arena, dict, "Encode")?;
         if splits.len() + 1 != k || encode.len() < 2 * k {
             return None;
         }
@@ -338,12 +339,12 @@ impl SampledFunction {
         if !matches!(bits, 1 | 2 | 4 | 8 | 12 | 16 | 24 | 32) {
             return None;
         }
-        let encode = number_array(dict, arena, "Encode")
+        let encode = crate::access::numbers_at(arena, dict, "Encode")
             .filter(|e| e.len() >= 2 * size.len())
             .unwrap_or_else(|| {
                 size.iter().flat_map(|s| [0.0_f64, f64::from(s.saturating_sub(1))]).collect()
             });
-        let decode = number_array(dict, arena, "Decode")
+        let decode = crate::access::numbers_at(arena, dict, "Decode")
             .filter(|d| d.len() >= range.len())
             .unwrap_or_else(|| range.clone());
         Some(Self { bounds, range, size, bits, encode, decode, samples })
@@ -524,16 +525,4 @@ fn entry(dict: &Dict, arena: &PdfArena, key: &str) -> Option<Object> {
 
 fn number(dict: &Dict, arena: &PdfArena, key: &str) -> Option<f64> {
     entry(dict, arena, key)?.as_f64()
-}
-
-fn number_array(dict: &Dict, arena: &PdfArena, key: &str) -> Option<Vec<f64>> {
-    let Object::Array(ah) = entry(dict, arena, key)? else {
-        return None;
-    };
-    let items = arena.get_array(ah)?;
-    let mut out = Vec::with_capacity(items.len());
-    for item in &items {
-        out.push(item.resolve(arena).as_f64()?);
-    }
-    Some(out)
 }

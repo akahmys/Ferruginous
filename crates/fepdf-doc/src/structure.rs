@@ -17,21 +17,6 @@ pub struct StructureVisitor<'a> {
     pub visited: BTreeSet<Handle<Object>>,
 }
 
-fn resolve_to_node_handle(arena: &PdfArena, obj: &Object) -> Option<Handle<Object>> {
-    match obj {
-        Object::Reference(h) => Some(*h),
-        Object::Dictionary(dh) => Some(Handle::new(dh.index())),
-        _ => {
-            let resolved = obj.resolve(arena);
-            match resolved {
-                Object::Reference(h) => Some(h),
-                Object::Dictionary(dh) => Some(Handle::new(dh.index())),
-                _ => None,
-            }
-        }
-    }
-}
-
 impl<'a> StructureVisitor<'a> {
     /// Creates a new visitor starting from the given structure root.
     pub fn new(arena: &'a PdfArena, root: Handle<Object>) -> Self {
@@ -56,13 +41,17 @@ impl<'a> StructureVisitor<'a> {
             let kids_key = self.arena.name("K");
 
             if let Some(kids) = dict.get(&kids_key) {
-                if let Some(kid_handle) = resolve_to_node_handle(self.arena, kids) {
+                if let Some(kid_handle) =
+                    crate::struct_tree::resolve_to_node_handle(self.arena, kids)
+                {
                     self.stack.push_back(kid_handle);
                 } else if let Object::Array(h) = kids.resolve(self.arena)
                     && let Some(array) = self.arena.get_array(h)
                 {
                     for kid in array.iter().rev() {
-                        if let Some(kid_handle) = resolve_to_node_handle(self.arena, kid) {
+                        if let Some(kid_handle) =
+                            crate::struct_tree::resolve_to_node_handle(self.arena, kid)
+                        {
                             self.stack.push_back(kid_handle);
                         }
                     }

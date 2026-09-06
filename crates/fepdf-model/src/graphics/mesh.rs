@@ -187,7 +187,7 @@ impl MeshParams {
             return None;
         }
 
-        let decode = number_array(dict, arena, "Decode")?;
+        let decode = crate::access::numbers_at(arena, dict, "Decode")?;
         if decode.len() < 4 + 2 * inputs {
             return None;
         }
@@ -274,18 +274,6 @@ fn entry(dict: &Dict, arena: &PdfArena, key: &str) -> Option<Object> {
 
 fn integer(dict: &Dict, arena: &PdfArena, key: &str) -> Option<i64> {
     entry(dict, arena, key)?.as_integer()
-}
-
-fn number_array(dict: &Dict, arena: &PdfArena, key: &str) -> Option<Vec<f64>> {
-    let Object::Array(ah) = entry(dict, arena, key)? else {
-        return None;
-    };
-    let items = arena.get_array(ah)?;
-    let mut out = Vec::with_capacity(items.len());
-    for item in &items {
-        out.push(item.resolve(arena).as_f64()?);
-    }
-    Some(out)
 }
 
 /// Type 4 (8.7.4.5.5): each vertex carries an edge flag saying how it joins the last two.

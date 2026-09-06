@@ -44,7 +44,7 @@ use crate::object::{FromPdfObject, Object, PdfName};
 use fepdf_macros::FromPdfObject;
 use serde::{Deserialize, Serialize};
 
-use crate::access::Dict;
+use crate::access::{Dict, dict_of, text_at};
 
 /// `/MarkInfo` (14.7.1, Table 321): whether the document is tagged.
 ///
@@ -905,27 +905,12 @@ fn walk_names(arena: &PdfArena, node: &Dict, out: &mut Vec<Vec<u8>>, depth: usiz
     }
 }
 
-fn dict_of(arena: &PdfArena, object: &Object) -> Option<Dict> {
-    match object.resolve(arena) {
-        Object::Dictionary(h) | Object::Stream(h, _) => arena.get_dict(h),
-        _ => None,
-    }
-}
-
 fn array_of(arena: &PdfArena, object: &Object) -> Option<Vec<Object>> {
     arena.get_array(object.resolve(arena).as_array()?)
 }
 
 fn name_at(arena: &PdfArena, dict: &Dict, key: &str) -> Option<PdfName> {
     arena.get_name(dict.get(&arena.name(key))?.resolve(arena).as_name()?)
-}
-
-fn text_at(arena: &PdfArena, dict: &Dict, key: &str) -> Option<String> {
-    match dict.get(&arena.name(key))?.resolve(arena) {
-        Object::Text(s) => Some(s),
-        Object::String(b) | Object::Hex(b) => Some(crate::refine::text::recover_string(&b)),
-        _ => None,
-    }
 }
 
 #[cfg(test)]

@@ -391,7 +391,7 @@ impl InteractiveReport {
     }
 }
 
-use crate::access::Dict;
+use crate::access::{Dict, text_of as string_of};
 
 /// What the three walks accumulate as they go.
 ///
@@ -720,16 +720,6 @@ fn render_value(arena: &PdfArena, value: &Object) -> String {
 
 fn name_of_key(arena: &PdfArena, d: &Dict, key: &str) -> Option<String> {
     d.get(&arena.name(key)).and_then(|v| name_of(arena, v))
-}
-
-/// A text string (7.9.2.2), decoded the way the rest of the engine decodes one — by
-/// byte order mark, or PDFDocEncoding from Annex D.
-fn string_of(arena: &PdfArena, object: &Object) -> Option<String> {
-    match object.resolve(arena) {
-        Object::Text(s) => Some(s),
-        Object::String(b) | Object::Hex(b) => Some(crate::refine::text::recover_string(&b)),
-        _ => None,
-    }
 }
 
 /// Reads `/Outlines`, comparing what `/Count` claims with what the links reach.

@@ -36,7 +36,7 @@ use crate::object::Object;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-use crate::access::Dict;
+use crate::access::{Dict, text_of};
 
 /// How far a `/Next` chain, a page tree or a field tree is followed before it is assumed
 /// to be looping. The same bound the other walks in this crate use, for the same reason.
@@ -521,15 +521,4 @@ fn text_name(arena: &PdfArena, dict: &Dict, key: &str) -> Option<String> {
 
 fn text_string(arena: &PdfArena, dict: &Dict, key: &str) -> Option<String> {
     text_of(arena, &dict.get(&arena.name(key))?.resolve(arena))
-}
-
-fn text_of(arena: &PdfArena, object: &Object) -> Option<String> {
-    let _ = arena;
-    match object {
-        Object::Text(text) => Some(text.clone()),
-        Object::String(bytes) | Object::Hex(bytes) => {
-            Some(crate::refine::text::recover_string(bytes))
-        }
-        _ => None,
-    }
 }
