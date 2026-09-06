@@ -143,3 +143,4 @@ quietly wrong — which is the failure this log exists to make visible.
 | 0076 | [What the arena compresses, and what that was costing](0076-what-the-arena-compresses-and-what-that-was-costing.md) | Continues 0075 |
 | 0077 | [A command was seventy-two bytes because of one rare variant](0077-a-command-was-seventy-two-bytes-because-of-one-rare-variant.md) | Continues 0076 |
 | 0078 | [What sweeping 752 tests found, and what the sweeps got wrong](0078-what-a-test-suite-sweep-found-and-what-it-did-not.md) | Extends 0068 |
+| 0079 | [The pre-parsed command form stays eager](0079-the-pre-parsed-command-form-stays-eager.md) | Closes 0077's open question |
