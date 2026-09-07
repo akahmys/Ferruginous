@@ -33,7 +33,9 @@ pub mod prompts;
 /// MCP resources for live inspection of PDF structures.
 pub mod resources;
 /// The core server implementation logic.
-pub mod server;
+// Private: nothing outside this crate names it. `run_server` is re-exported below and
+// is the whole of what the binary uses.
+mod server;
 /// The library of tools available to the MCP server.
 pub mod tools;
 

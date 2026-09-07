@@ -76,7 +76,7 @@ impl FepdfServer {
     /// Analyzes and verifies all digital signatures in a PDF.
     #[tool(
         name = "verify_signatures",
-        description = "Analyzes and verifies all digital signatures in a PDF, including integrity checks (MD5/SHA) and signer certificate validation."
+        description = "Checks every digital signature a PDF carries: whether it verifies, who the certificate says signed it, and how much of the file the signature covers. No certificate chain is built to a root and no revocation list is checked."
     )]
     pub async fn verify_signatures(
         &self,
@@ -496,13 +496,15 @@ impl Default for FepdfServer {
 /// Entry point for running the fepdf MCP server over stdio.
 pub async fn run_server() -> Result<(), Box<dyn std::error::Error>> {
     let server = FepdfServer::new();
-    let router = Router::new(server).with_tools(FepdfServer::tool_router());
+    let tools = FepdfServer::tool_router();
+    // Counted, not quoted. This read "24 Operation tools and Resource/Prompt support"
+    // while the router carried 36 and nothing served a resource or a prompt.
+    let tool_count = tools.list_all().len();
+    let router = Router::new(server).with_tools(tools);
 
     let transport = rmcp::transport::stdio();
 
-    println!(
-        "fepdf MCP Server starting on stdio with 24 Operation tools and Resource/Prompt support..."
-    );
+    println!("fepdf MCP Server starting on stdio with {tool_count} tools...");
     router.serve(transport).await.map_err(|e| format!("Server error: {e}"))?;
 
     Ok(())

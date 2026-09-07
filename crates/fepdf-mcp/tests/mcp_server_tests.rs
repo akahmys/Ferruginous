@@ -321,13 +321,19 @@ fn the_reporting_tools_answer_about_the_document() {
         "and names what an untagged document is missing: {audit}"
     );
 
-    let signatures =
-        verify_signatures_impl(VerifySignaturesArgs { path: path.clone(), allow_network: false })
-            .expect("verification runs");
+    let signatures = verify_signatures_impl(VerifySignaturesArgs { path: path.clone() })
+        .expect("verification runs");
     assert!(
         signatures.to_lowercase().contains("no digital signatures"),
         "an unsigned document says so in words rather than returning an empty report: \
          {signatures}"
+    );
+    // `list_signatures` could not say this: a field with no `/V` is not a signature, so
+    // enumerating signatures never counted one. `SignatureReport::survey` does, which is
+    // how this assertion tells the two implementations apart.
+    assert!(
+        signatures.contains("signature field(s) carry none"),
+        "the answer accounts for signature fields carrying no signature: {signatures}"
     );
 
     assert!(read_metadata_resource(&path).expect("metadata reads").contains('{'));
