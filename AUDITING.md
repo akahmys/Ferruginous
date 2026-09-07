@@ -82,22 +82,23 @@ before Rule 17 was retired. A derivation that reads comments is not a derivation
 | 1 | Function line limits | 1 |
 | 2 | No `unwrap`/`expect` in production code | 2 |
 | 3 | No wildcard match arms over domain enums | 5 |
-| 4 | No non-deterministic collections in core crates | 10 |
-| 5 | No `String`/`anyhow` errors in a `Result` | 11 |
-| 6 | No `filter_map(Result::ok)` | 13 |
-| 7 | **No `Result` discarded by `let _ =` without a reason** | **13** |
-| 8 | Test code separation — no standalone test file in `src/` | 14 |
-| 9 | Excessive cloning (warns; does not fail) | 15 |
-| 10 | MSRV stated as one version across `Cargo.toml`, `.rust-toolchain.toml` and `README.md` | — |
-| 11 | `cargo check --workspace` | — |
-| 12 | `cargo clippy --workspace --all-targets -- -D warnings` | 4, 5 |
-| 13 | **No dependency that compiles C** | **9** |
-| 14 | **No unbounded recursion over a document's graph** | **6** |
-| 15 | **Document tense, links, and the ADR index** | **`AGENTS.md` 1, 2** |
-| 16 | **What stands above the facade, what it declares, and what the facade lets in** | **A, D** |
-| 17 | `cargo fmt --all --check` | 19 |
-| 18 | `cargo deny check licenses` | 16 |
-| 19 | `betterleaks dir .` | 18 |
+| 4 | **Wildcard arms over a file's numeric value — counted; a stale exemption fails** | **20** |
+| 5 | No non-deterministic collections in core crates | 10 |
+| 6 | No `String`/`anyhow` errors in a `Result` | 11 |
+| 7 | No `filter_map(Result::ok)` | 13 |
+| 8 | **No `Result` discarded by `let _ =` without a reason** | **13** |
+| 9 | Test code separation — no standalone test file in `src/` | 14 |
+| 10 | Excessive cloning (warns; does not fail) | 15 |
+| 11 | MSRV stated as one version across `Cargo.toml`, `.rust-toolchain.toml` and `README.md` | — |
+| 12 | `cargo check --workspace` | — |
+| 13 | `cargo clippy --workspace --all-targets -- -D warnings` | 4, 5 |
+| 14 | **No dependency that compiles C** | **9** |
+| 15 | **No unbounded recursion over a document's graph** | **6** |
+| 16 | **Document tense, links, and the ADR index** | **`AGENTS.md` 1, 2** |
+| 17 | **What stands above the facade, what it declares, and what the facade lets in** | **A, D** |
+| 18 | `cargo fmt --all --check` | 19 |
+| 19 | `cargo deny check licenses` | 16 |
+| 20 | `betterleaks dir .` | 18 |
 
 **Rules 3 and 7 are not here and are not unenforced.** `unsafe_code = "forbid"` fails the
 build on an `unsafe` block, and a `static mut` cannot be read without one, so `rustc`
@@ -105,9 +106,10 @@ holds both — verified by adding each to `fepdf-model` and watching `cargo buil
 greps that used to sit here matched `unsafe {`, missed `unsafe(`, and ran after a build
 that had already succeeded.
 
-`CODING.md` states each rule; this table states only which the script enforces. Rules 4,
-8 and 20 are in `CODING.md` and **not** here, because nothing automated checks them —
-each names review instead, per the rule that an unchecked rule is a comment.
+`CODING.md` states each rule; this table states only which the script enforces. Rules 4
+and 8 are in `CODING.md` and **not** here, because nothing automated checks them — each
+names review instead, per the rule that an unchecked rule is a comment. **Rule 20 is here
+for part of itself**, which the next-but-one paragraph is about.
 
 **Rule 6 joined the table on 2026-09-06**, and what it took to get there is the argument
 for the rule that put it in `CODING.md` with "Code review" in the first place. Review
@@ -118,9 +120,18 @@ first run. `CODING.md`'s "Rule 6 in detail" says what it sees and what it does n
 **Rule 20 has a counter, which is not the same as a check.**
 `scripts/audit/silent_branches.py` lists the wildcard arms where a value read out of a
 file gets neither a `Decision` nor an error — the ground Rule 5's lint cannot reach,
-because `/LC`, `/LJ`, `/ShadingType` and `/V` arrive as integers rather than as enums. It
-is not in the script above and does not gate a commit: some of what it lists is
-defensible, and the number is there so a new one is visible. It reads **0**: the count
+because `/LC`, `/LJ`, `/ShadingType` and `/V` arrive as integers rather than as enums.
+**The count still does not gate a commit** and is not meant to: some of what it lists is
+defensible — an unknown `/V` makes the document fail to open, which is loud enough — and
+the number is there so a new one is visible.
+
+**What joined the script on 2026-09-08 is the verdict the tool already had.** It exits
+non-zero when an exemption names a site that no longer matches a silent arm, which reads
+as a check still being made and is not one. Only `status.sh` ran the tool until then, and
+`status.sh` reports rather than gates, so that exit code had never been read by anything.
+Proved by adding an exemption for a function that does not exist and watching step 4 fail.
+
+It reads **0**: the count
 went 11 → 8 on 2026-08-30, when three enumerants gained recording callers, and 8 → 0 on
 2026-08-31, when the remaining eight were audited and each registered against the caller
 that records for it. All 11 are printed with that caller named, so the list stays readable

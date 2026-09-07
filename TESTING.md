@@ -29,25 +29,37 @@ All crates in the workspace MUST maintain high test coverage for core data struc
 cargo test --workspace
 ```
 
-**Where the time goes, re-measured 2026-09-07 — one machine, nothing else running, three
-consecutive runs of each form.** A run with nothing to rebuild is **29 to 35 seconds** and
-reports **754 tests**.
+**Where the time goes, re-measured 2026-09-08 — one machine, nothing else running, three
+consecutive runs of each form.** A run with nothing to rebuild is **29 to 32 seconds** and
+reports **800 tests**. Derive both from one run:
+
+```bash
+time cargo test --workspace 2>&1 | grep -oE 'test result: ok\. [0-9]+' \
+  | grep -oE '[0-9]+' | awk '{s+=$1} END{print s " tests"}'
+```
 
 **This paragraph used to say 1m 57s for 591 tests, and to recommend a shorter form on the
 strength of it.** Both halves stopped being true:
 
-| | measured 2026-08-30 | measured 2026-09-07 |
+| | measured 2026-08-30 | measured 2026-09-08 |
 | :--- | ---: | ---: |
-| `cargo test --workspace` | 1m 57s, 591 tests | **29–35s, 754 tests** |
-| `cargo test --workspace --lib --bins --tests` | 1m 31s | 26–33s |
+| `cargo test --workspace` | 1m 57s, 591 tests | **28.8–31.6s, 800 tests** |
+| `cargo test --workspace --lib --bins --tests` | 1m 31s | 25.4–31.5s, 800 tests |
 | the difference — the doc-test phase | **26s, a fifth of the run** | **within run-to-run noise** |
 
-163 more tests in a quarter of the time. The work that did it is
-[ADR-0074](docs/adr/0074-the-reader-copied-the-file-once-per-object.md) (the reader copied
-the file once per object), [ADR-0075](docs/adr/0075-two-costs-a-caller-never-asked-for.md)
-(the arena maintained a reverse index nothing queried) and
+209 more tests in a quarter of the time, and the two halves of that have different causes.
+**The quarter** is [ADR-0074](docs/adr/0074-the-reader-copied-the-file-once-per-object.md)
+(the reader copied the file once per object),
+[ADR-0075](docs/adr/0075-two-costs-a-caller-never-asked-for.md) (the arena maintained a
+reverse index nothing queried) and
 [ADR-0076](docs/adr/0076-what-the-arena-compresses-and-what-that-was-costing.md)
-(compression level). The suite opens documents, so it inherited all three.
+(compression level) — the suite opens documents, so it inherited all three. **The tests**
+are the phases since, which those three did nothing to add.
+
+**Both forms now report the same 800**, which is the doc-test phase saying in a second way
+what the paragraph below says: it runs no examples, so it counts none. The short form's
+slowest run (31.5s) is slower than the full form's fastest (28.8s), which is what "within
+run-to-run noise" means here.
 
 **So the short form is no longer worth knowing about.** It was documented because it saved
 a fifth of the run; it now saves nothing measurable, and it still stops guarding doc

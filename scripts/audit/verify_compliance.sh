@@ -191,6 +191,24 @@ while IFS= read -r entry; do
 done <<< "$rule5_raw"
 [ "$rule5_failed" -eq 0 ] && echo "  PASS"
 
+# Rule 20's blind spot, which Rule 5 above cannot reach: `/ShadingType`, `/V`, `/LC` and
+# `/LJ` arrive as integers out of a file, so a `match` on one *needs* a wildcard and
+# `clippy::wildcard_enum_match_arm` never fires on it.
+#
+# `silent_branches.py` is a count and not a verdict on purpose — its own docstring says
+# why, and an unknown `/V` that makes the open fail is loud enough without a Decision. So
+# what is gated here is the verdict it does have: **an exemption naming a site that no
+# longer matches a silent arm**, which reads as a check still being made and is not one.
+# `status.sh` has run this tool since it was written and nothing consumed its exit code,
+# so that verdict has been reachable and unread.
+echo "[Rule 20] Checking wildcard arms over a file's numeric value..."
+if silent_out=$(python3 scripts/audit/silent_branches.py 2>&1); then
+    echo "  PASS ($(echo "$silent_out" | grep -oE '^[0-9]+ silent wildcard arms.*'))"
+else
+    echo "$silent_out" | grep -E "^STALE EXEMPTION" | sed 's/^/  FAIL: /'
+    ERROR=1
+fi
+
 # Rule 7 is rustc's too: a `static mut` cannot be read without an `unsafe` block.
 #
 # fepdf owns the facade and writer delegation, so iteration order there reaches

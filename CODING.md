@@ -32,7 +32,7 @@ Derived from aerospace safety principles, the **RR-15 (Reliable Rust-15)** rules
 | **Rule 16** | Licences | Every dependency's licence must be on `deny.toml`'s allow-list. | `cargo deny check licenses` via `verify_compliance.sh` |
 | **Rule 18** | Secrets and PII | No credential, key or personal datum may be committed. | `betterleaks` via `verify_compliance.sh` and a pre-commit hook |
 | **Rule 19** | Formatting | The tree must satisfy `cargo fmt --all --check`. | `./scripts/audit/verify_compliance.sh` |
-| **Rule 20** | Recorded Interpretation | Where the engine accepts input the standard does not describe, it MUST record a `Decision` naming the clause and what was done. A silent acceptance is a defect even when the output is right. | Code review / ARCHITECTURE.md §4.3 |
+| **Rule 20** | Recorded Interpretation | Where the engine accepts input the standard does not describe, it MUST record a `Decision` naming the clause and what was done. A silent acceptance is a defect even when the output is right. | Code review / ARCHITECTURE.md §4.3. `scripts/audit/silent_branches.py` via `verify_compliance.sh` counts the arms and gates the one verdict it has — a stale exemption. Detail below |
 
 **Two numbers are unused: 12 and 17.** Rule 12 was Invariant Enforcement and left the
 table while the practice stayed in the code; Rule 17 required a float suffix and was
@@ -145,8 +145,15 @@ which has that information and fires only on enums.
 `/ShadingType`, `/V`, `/LC`, `/LJ` — and a `match` on an integer needs a
 wildcard, so the lint cannot see them. Measured 2026-08-29: 30 such matches, of which 11
 answer an unrecognised value with a default or `None` and no `Decision` — `/LC 7` becomes
-a butt cap, `/LJ 7` a mitre join. Rule 20 is what covers this ground, and nothing checks
-Rule 20.
+a butt cap, `/LJ 7` a mitre join. Rule 20 is what covers this ground.
+
+`scripts/audit/silent_branches.py` is what looks at it, and **the count it prints is not
+gated, on purpose**: an unknown `/V` makes the document fail to open, which is loud enough
+without a `Decision`, so a new arm is a question rather than a defect. What the audit does
+gate is the tool's own verdict — an exemption naming a site that no longer matches a
+silent arm, which reads as a check still being made and is not one. Until 2026-09-08 only
+`status.sh` ran the tool, and nothing read its exit code, so that verdict was reachable
+and unread.
 
 **Those three were recorded first**, on 2026-08-30: `LineCap::from_i64`, `LineJoin::from_i64`
 and `TextRenderingMode::from_i64` return `Option` instead of a default, so each of their

@@ -2801,18 +2801,26 @@ twin comes last, because everything above it strengthens the net that work needs
       `=== AUDIT PASSED ===`; each marker added says in one line why that function
       dispatches.
 
-- [ ] **`scripts/audit/silent_branches.py` is measured and gated by nothing.** It reports
-      **0 silent wildcard arms over a numeric domain value**, with 11 recorded by their
-      callers instead, and exits 0 — so this is configuration rather than repair. It is
-      the same shape Rules A and D were in before they moved into
-      `scripts/audit/layering.py`: a check that runs and decides nothing.
+- [x] **`scripts/audit/silent_branches.py` had a verdict nothing read.** This entry first
+      said the tool was "measured and gated by nothing", and that was imprecise in two
+      ways. `status.sh` already calls the tool rather than deriving its number a second
+      time, so half the *Done when* was met before it was written. And the count is **not
+      meant to gate**: the tool's own docstring says so — an unknown `/V` makes the
+      document fail to open, which is loud enough without a `Decision`, so a new arm is a
+      question rather than a defect.
+
+      What was actually unread is the verdict the tool does have: **it exits non-zero when
+      an exemption names a site that no longer matches a silent arm**, which reads as a
+      check still being made and is not one. Only `status.sh` ran it, and `status.sh`
+      reports rather than gates, so that exit code reached nothing.
 
       ```text
       python3 scripts/audit/silent_branches.py; echo $?
       ```
 
-      *Done when*: `verify_compliance.sh` runs it and `status.sh` reports what it returns
-      rather than deriving the number a second time.
+      **Wired as audit step 4**, which prints the count and fails on a stale exemption.
+      Proved by exempting a function that does not exist and watching the step fail.
+      `CODING.md`'s Rule 20 row and `AUDITING.md`'s step table say which half is gated.
 
 - [ ] **A PDF is assembled by hand in 19 files.** `crates/*/src` carries **29 occurrences
       across 13 files**, `crates/*/examples` six more; `crates/fepdf/tests/` is down to
@@ -2872,19 +2880,22 @@ twin comes last, because everything above it strengthens the net that work needs
       same input — the shape of `both_form_implementations_produce_the_same_calls` — and
       it exists **before** any merging starts.
 
-- [ ] **`TESTING.md` quotes a test count from a run two phases old.** Lines 34 and 41 say
-      **754 tests**; `cargo test --workspace` reports **800**, and the timings in that
-      table come from the same stale run. `status.sh` does not re-derive either, which is
-      why neither reads as a disagreement today. Every `expect 0` figure it *does* derive
-      read 0 on 2026-09-08, so that sweep is finished.
+- [x] **`TESTING.md` quoted a test count from a run two phases old.** It said **754
+      tests** where `cargo test --workspace` reports **800**, with the timings from that
+      same stale run. `status.sh` re-derives neither, which is why it did not read as a
+      disagreement. Every `expect 0` figure it *does* derive read 0 on 2026-09-08, so that
+      sweep is finished.
 
-      ```text
-      cargo test --workspace 2>&1 | grep -oE 'test result: ok\. [0-9]+' \
-        | grep -oE '[0-9]+' | awk '{s+=$1} END{print s}'
-      ```
+      Re-measured on one machine, three consecutive runs of each form:
 
-      *Done when*: the count and the timings come from one run, dated, and the table says
-      which.
+      | | measured 2026-09-07 | measured 2026-09-08 |
+      | :--- | ---: | ---: |
+      | `cargo test --workspace` | 29–35s, 754 tests | **28.8–31.6s, 800 tests** |
+      | `cargo test --workspace --lib --bins --tests` | 26–33s | 25.4–31.5s, 800 tests |
+
+      **Both forms report the same 800**, which is the doc-test phase saying in a second
+      way that it runs no examples. The deriving command now sits beside the number in
+      `TESTING.md`, which is what that file's own warning asks for.
 
 - [ ] **The MCP prompt surface describes tools that do not exist and omits what two of
       them now do.** `crates/fepdf-mcp/src/prompts.rs:11` names `get_structure_tree`, a
