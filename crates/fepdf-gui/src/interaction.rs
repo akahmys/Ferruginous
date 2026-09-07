@@ -190,6 +190,43 @@ impl SelectionManager {
         }
     }
 
+    /// The spans a drag rect covers.
+    ///
+    /// **Three places ask this** — text selection, the redaction brush, and the brush's
+    /// drop — and each wrote the test out.
+    fn spans_under(select_rect: egui::Rect, spans: &[TextSpan]) -> impl Iterator<Item = &TextSpan> {
+        spans.iter().filter(move |span| select_rect.intersects(span.rect))
+    }
+
+    /// The screen rect that highlights `span`.
+    ///
+    /// **The corners swap.** A PDF rect is y-up and the screen is y-down, so the screen's
+    /// top-left comes from the span's `(min.x, max.y)` and its bottom-right from
+    /// `(max.x, min.y)`. Taking the corners straight across gives a rect of negative
+    /// height, which draws as nothing rather than as something visibly wrong. Selection
+    /// and the brush each wrote this out.
+    fn highlight_rect(
+        page_rect: egui::Rect,
+        zoom: f32,
+        page_unscaled_h: f32,
+        span: &TextSpan,
+    ) -> egui::Rect {
+        egui::Rect::from_min_max(
+            Self::pdf_to_screen(
+                page_rect,
+                zoom,
+                page_unscaled_h,
+                egui::pos2(span.rect.min.x, span.rect.max.y),
+            ),
+            Self::pdf_to_screen(
+                page_rect,
+                zoom,
+                page_unscaled_h,
+                egui::pos2(span.rect.max.x, span.rect.min.y),
+            ),
+        )
+    }
+
     fn recalculate_selection(
         &mut self,
         page_index: usize,
@@ -205,29 +242,12 @@ impl SelectionManager {
         // Create PDF space selection bounding box
         let select_rect = egui::Rect::from_two_pos(start, current);
 
-        let mut selected_spans = Vec::new();
-        let mut page_highlights = Vec::new();
-
-        for span in spans {
-            if select_rect.intersects(span.rect) {
-                selected_spans.push(span.clone());
-
-                // Map PDF-space span rect to screen-space highlight rect
-                let screen_min = Self::pdf_to_screen(
-                    page_rect,
-                    zoom,
-                    page_unscaled_h,
-                    egui::pos2(span.rect.min.x, span.rect.max.y),
-                );
-                let screen_max = Self::pdf_to_screen(
-                    page_rect,
-                    zoom,
-                    page_unscaled_h,
-                    egui::pos2(span.rect.max.x, span.rect.min.y),
-                );
-                page_highlights.push(egui::Rect::from_min_max(screen_min, screen_max));
-            }
-        }
+        let selected_spans: Vec<TextSpan> =
+            Self::spans_under(select_rect, spans).cloned().collect();
+        let page_highlights: Vec<egui::Rect> = selected_spans
+            .iter()
+            .map(|span| Self::highlight_rect(page_rect, zoom, page_unscaled_h, span))
+            .collect();
 
         // Build selected text
         let mut text = String::new();
@@ -251,15 +271,11 @@ impl SelectionManager {
     ) {
         let select_rect = egui::Rect::from_two_pos(start, current);
         if select_rect.width() > 2.0 && select_rect.height() > 2.0 {
-            let mut intersecting_spans = Vec::new();
-            let mut combined_rect = egui::Rect::NOTHING;
-
-            for span in spans {
-                if select_rect.intersects(span.rect) {
-                    intersecting_spans.push(span.clone());
-                    combined_rect = combined_rect.union(span.rect);
-                }
-            }
+            let intersecting_spans: Vec<TextSpan> =
+                Self::spans_under(select_rect, spans).cloned().collect();
+            let combined_rect = intersecting_spans
+                .iter()
+                .fold(egui::Rect::NOTHING, |acc, span| acc.union(span.rect));
 
             if !intersecting_spans.is_empty() {
                 let combined_text = intersecting_spans
@@ -330,25 +346,9 @@ impl SelectionManager {
         };
 
         let select_rect = egui::Rect::from_two_pos(start, current);
-        let mut page_highlights = Vec::new();
-
-        for span in spans {
-            if select_rect.intersects(span.rect) {
-                let screen_min = Self::pdf_to_screen(
-                    page_rect,
-                    zoom,
-                    page_unscaled_h,
-                    egui::pos2(span.rect.min.x, span.rect.max.y),
-                );
-                let screen_max = Self::pdf_to_screen(
-                    page_rect,
-                    zoom,
-                    page_unscaled_h,
-                    egui::pos2(span.rect.max.x, span.rect.min.y),
-                );
-                page_highlights.push(egui::Rect::from_min_max(screen_min, screen_max));
-            }
-        }
+        let page_highlights: Vec<egui::Rect> = Self::spans_under(select_rect, spans)
+            .map(|span| Self::highlight_rect(page_rect, zoom, page_unscaled_h, span))
+            .collect();
 
         self.highlights.insert(page_index, page_highlights);
     }
@@ -396,5 +396,72 @@ mod tests {
         let at_2x = SelectionManager::pdf_to_screen(rect, 2.0, PAGE_H, egui::pos2(100.0, 0.0));
         assert!((at_1x.x - rect.min.x - 100.0).abs() < 1e-3);
         assert!((at_2x.x - rect.min.x - 200.0).abs() < 1e-3);
+    }
+}
+
+#[cfg(test)]
+mod drag_coverage {
+    use super::{SelectionManager, TextSpan};
+
+    const PAGE_H: f32 = 800.0;
+
+    fn page_rect() -> egui::Rect {
+        egui::Rect::from_min_size(egui::pos2(100.0, 50.0), egui::vec2(600.0, PAGE_H))
+    }
+
+    fn span(text: &str, x0: f32, y0: f32, x1: f32, y1: f32) -> TextSpan {
+        TextSpan {
+            text: text.to_string(),
+            rect: egui::Rect::from_min_max(egui::pos2(x0, y0), egui::pos2(x1, y1)),
+        }
+    }
+
+    /// **A highlight must have positive height.** The PDF rect is y-up and the screen is
+    /// y-down, so the screen's top-left comes from the span's `(min.x, max.y)`. Taking the
+    /// corners straight across gives a rect of negative height, which draws as nothing —
+    /// a highlight that silently fails to appear rather than appearing wrong.
+    #[test]
+    fn a_highlight_is_the_right_way_up_on_screen() {
+        let rect = SelectionManager::highlight_rect(
+            page_rect(),
+            1.0,
+            PAGE_H,
+            &span("x", 10.0, 20.0, 60.0, 40.0),
+        );
+        assert!(rect.height() > 0.0, "height was {}", rect.height());
+        assert!(rect.width() > 0.0, "width was {}", rect.width());
+        assert!(
+            (rect.height() - 20.0).abs() < 1e-3,
+            "a 20-unit-tall span at zoom 1 is 20 tall, not {}",
+            rect.height()
+        );
+    }
+
+    /// The highlight scales with the zoom it is drawn at.
+    #[test]
+    fn a_highlight_scales_with_the_zoom() {
+        let s = span("x", 10.0, 20.0, 60.0, 40.0);
+        let one = SelectionManager::highlight_rect(page_rect(), 1.0, PAGE_H, &s);
+        let two = SelectionManager::highlight_rect(page_rect(), 2.0, PAGE_H, &s);
+        assert!(
+            one.height().mul_add(-2.0, two.height()).abs() < 1e-3,
+            "{} against {}",
+            two.height(),
+            one.height()
+        );
+    }
+
+    /// Selection, the redaction brush and the brush's drop all ask this one question.
+    #[test]
+    fn a_drag_covers_the_spans_it_touches_and_no_others() {
+        let spans = vec![
+            span("above", 0.0, 100.0, 50.0, 120.0),
+            span("inside", 0.0, 10.0, 50.0, 30.0),
+            span("touching", 40.0, 25.0, 90.0, 45.0),
+        ];
+        let drag = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(45.0, 35.0));
+        let covered: Vec<&str> =
+            SelectionManager::spans_under(drag, &spans).map(|s| s.text.as_str()).collect();
+        assert_eq!(covered, vec!["inside", "touching"]);
     }
 }

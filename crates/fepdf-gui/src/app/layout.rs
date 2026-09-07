@@ -3,35 +3,59 @@
 use super::FepdfApp;
 use crate::view::{BindingDirection, DisplayMode, PageLayout, ScrollDirection};
 
+/// Places one page alone at `offset` along the scroll axis, and says where the next page
+/// starts.
+///
+/// **Two pages are laid out alone** — a cover when the cover stands by itself, and the
+/// final page of an odd-length document — and each wrote this out. A free function rather
+/// than a method because `FepdfApp` needs an `eframe::CreationContext` to exist, so
+/// nothing that hangs off it can be reached from a test; this can.
+fn place_lone_page(
+    size: (f64, f64),
+    index: usize,
+    offset: f32,
+    gap: f32,
+    vertical: bool,
+    layouts: &mut [PageLayout],
+) -> f32 {
+    let w = size.0 as f32;
+    let h = size.1 as f32;
+    let rect = if vertical {
+        egui::Rect::from_min_size(egui::pos2(-w / 2.0, offset), egui::vec2(w, h))
+    } else {
+        egui::Rect::from_min_size(egui::pos2(offset, -h / 2.0), egui::vec2(w, h))
+    };
+    layouts[index] = PageLayout { index, rect };
+    offset + if vertical { h } else { w } + gap
+}
+
 impl FepdfApp {
     pub fn reset_view(&mut self) {
         self.view.set_zoom(1.0);
         self.view.pan = egui::Vec2::ZERO;
     }
 
-    pub fn fit_to_width(&mut self, viewport_rect: egui::Rect) {
+    /// The pages a fit measures: the current spread in a two-page mode, the current page
+    /// alone otherwise.
+    ///
+    /// **The pairing is [`PDFView::get_spread_indices`] and nowhere else.** It stood
+    /// written out here as well, once inside each fit, in arithmetic that agreed with it
+    /// for every page of every non-empty document — three copies of one rule, of which
+    /// only the original was reachable from a test.
+    fn spread_to_fit(&self) -> Vec<usize> {
         let current_page =
             self.view.visible_pages.first().copied().unwrap_or(self.view.active_page);
-        let mut indices = vec![current_page];
         if self.view.display_mode == DisplayMode::TwoPageSpread
             || self.view.display_mode == DisplayMode::TwoPageSingle
         {
-            if self.view.cover_page_alone {
-                if current_page > 0 {
-                    let pair_start = ((current_page - 1) / 2) * 2 + 1;
-                    indices = vec![pair_start];
-                    if pair_start + 1 < self.total_pages {
-                        indices.push(pair_start + 1);
-                    }
-                }
-            } else {
-                let pair_start = (current_page / 2) * 2;
-                indices = vec![pair_start];
-                if pair_start + 1 < self.total_pages {
-                    indices.push(pair_start + 1);
-                }
-            }
+            self.view.get_spread_indices(current_page, self.total_pages)
+        } else {
+            vec![current_page]
         }
+    }
+
+    pub fn fit_to_width(&mut self, viewport_rect: egui::Rect) {
+        let indices = self.spread_to_fit();
 
         let mut min_x = f32::MAX;
         let mut max_x = f32::MIN;
@@ -51,28 +75,7 @@ impl FepdfApp {
     }
 
     pub fn fit_to_height(&mut self, viewport_rect: egui::Rect) {
-        let current_page =
-            self.view.visible_pages.first().copied().unwrap_or(self.view.active_page);
-        let mut indices = vec![current_page];
-        if self.view.display_mode == DisplayMode::TwoPageSpread
-            || self.view.display_mode == DisplayMode::TwoPageSingle
-        {
-            if self.view.cover_page_alone {
-                if current_page > 0 {
-                    let pair_start = ((current_page - 1) / 2) * 2 + 1;
-                    indices = vec![pair_start];
-                    if pair_start + 1 < self.total_pages {
-                        indices.push(pair_start + 1);
-                    }
-                }
-            } else {
-                let pair_start = (current_page / 2) * 2;
-                indices = vec![pair_start];
-                if pair_start + 1 < self.total_pages {
-                    indices.push(pair_start + 1);
-                }
-            }
-        }
+        let indices = self.spread_to_fit();
 
         let mut min_y = f32::MAX;
         let mut max_y = f32::MIN;
@@ -151,27 +154,16 @@ impl FepdfApp {
             let mut current_offset = 0.0;
             let gap = 20.0;
             let inner_gap = 8.0;
+            let vertical = self.view.scroll_direction == ScrollDirection::Vertical;
             let mut i = if self.view.cover_page_alone && !self.doc_page_sizes.is_empty() {
-                let (w, h) = self.doc_page_sizes[0];
-                let w = w as f32;
-                let h = h as f32;
-                let rect = if self.view.scroll_direction == ScrollDirection::Vertical {
-                    egui::Rect::from_min_size(
-                        egui::pos2(-w / 2.0, current_offset),
-                        egui::vec2(w, h),
-                    )
-                } else {
-                    egui::Rect::from_min_size(
-                        egui::pos2(current_offset, -h / 2.0),
-                        egui::vec2(w, h),
-                    )
-                };
-                layouts[0] = PageLayout { index: 0, rect };
-                if self.view.scroll_direction == ScrollDirection::Vertical {
-                    current_offset += h + gap;
-                } else {
-                    current_offset += w + gap;
-                }
+                current_offset = place_lone_page(
+                    self.doc_page_sizes[0],
+                    0,
+                    current_offset,
+                    gap,
+                    vertical,
+                    &mut layouts,
+                );
                 1
             } else {
                 0
@@ -249,26 +241,14 @@ impl FepdfApp {
                     }
                     i += 2;
                 } else {
-                    let (w, h) = self.doc_page_sizes[i];
-                    let w = w as f32;
-                    let h = h as f32;
-                    let rect = if self.view.scroll_direction == ScrollDirection::Vertical {
-                        egui::Rect::from_min_size(
-                            egui::pos2(-w / 2.0, current_offset),
-                            egui::vec2(w, h),
-                        )
-                    } else {
-                        egui::Rect::from_min_size(
-                            egui::pos2(current_offset, -h / 2.0),
-                            egui::vec2(w, h),
-                        )
-                    };
-                    layouts[i] = PageLayout { index: i, rect };
-                    if self.view.scroll_direction == ScrollDirection::Vertical {
-                        current_offset += h + gap;
-                    } else {
-                        current_offset += w + gap;
-                    }
+                    current_offset = place_lone_page(
+                        self.doc_page_sizes[i],
+                        i,
+                        current_offset,
+                        gap,
+                        vertical,
+                        &mut layouts,
+                    );
                     i += 1;
                 }
             }
@@ -572,5 +552,53 @@ mod tiles {
         // The tile view reaches the floor.
         let between_rows = FepdfApp::TILE_ROW_GAP * crate::view::PDFView::ZOOM_FLOOR;
         assert!(between_rows >= needed, "rows are {between_rows} apart at the floor");
+    }
+}
+
+#[cfg(test)]
+mod lone_page_placement {
+    use super::{PageLayout, place_lone_page};
+
+    fn slots(n: usize) -> Vec<PageLayout> {
+        (0..n).map(|index| PageLayout { index, rect: egui::Rect::NOTHING }).collect()
+    }
+
+    /// A page laid out alone is centred across the scroll axis and placed along it, and
+    /// the next page starts a gap past its far edge.
+    ///
+    /// A cover and an odd document's last page are both laid out this way, and each of
+    /// the two wrote the arithmetic out. Only the axis differs between them.
+    #[test]
+    fn a_lone_page_is_centred_across_the_axis_it_scrolls_along() {
+        let mut layouts = slots(2);
+        let next = place_lone_page((100.0, 200.0), 0, 50.0, 20.0, true, &mut layouts);
+        assert_eq!(layouts[0].rect.min, egui::pos2(-50.0, 50.0), "centred on x");
+        assert_eq!(layouts[0].rect.size(), egui::vec2(100.0, 200.0));
+        assert!(
+            (next - 270.0).abs() < f32::EPSILON,
+            "the next page starts past the height and the gap, not at {next}"
+        );
+    }
+
+    #[test]
+    fn scrolling_sideways_swaps_which_axis_is_centred() {
+        let mut layouts = slots(2);
+        let next = place_lone_page((100.0, 200.0), 1, 50.0, 20.0, false, &mut layouts);
+        assert_eq!(layouts[1].rect.min, egui::pos2(50.0, -100.0), "centred on y");
+        assert_eq!(layouts[1].rect.size(), egui::vec2(100.0, 200.0));
+        assert!(
+            (next - 170.0).abs() < f32::EPSILON,
+            "the next page starts past the width and the gap, not at {next}"
+        );
+    }
+
+    /// The page it places is the one it is asked for, and no other slot is touched.
+    #[test]
+    fn only_the_named_slot_is_written() {
+        let mut layouts = slots(3);
+        place_lone_page((10.0, 10.0), 1, 0.0, 0.0, true, &mut layouts);
+        assert_eq!(layouts[0].rect, egui::Rect::NOTHING);
+        assert_ne!(layouts[1].rect, egui::Rect::NOTHING);
+        assert_eq!(layouts[2].rect, egui::Rect::NOTHING);
     }
 }

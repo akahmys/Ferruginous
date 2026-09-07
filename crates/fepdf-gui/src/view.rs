@@ -45,6 +45,10 @@ pub struct PDFView {
     /// [`Self::zoom_at`]. It was `pub`, four callers assigned it directly, and three of
     /// them wrote out the same `clamp(0.1, 10.0)` — a bound repeated is a bound that
     /// drifts, and one caller forgetting it is a view that cannot be zoomed back.
+    ///
+    /// [`Self::apply_zoom`] is where the bound is applied, and the only place it is
+    /// written. `set_zoom` had its own copy of the same `clamp` until it went through
+    /// `apply_zoom` too: two is fewer than four and still more than one.
     zoom: f32,
     /// What a continuous gesture has accumulated, before snapping.
     ///
@@ -336,7 +340,7 @@ impl PDFView {
     /// the line after and would have that work thrown away. Routing them through `zoom_at`
     /// would compute an anchor nobody reads.
     pub fn set_zoom(&mut self, zoom: f32) {
-        self.zoom = zoom.clamp(*Self::ZOOM_BOUNDS.start(), *Self::ZOOM_BOUNDS.end());
+        self.apply_zoom(zoom);
         self.zoom_unsnapped = self.zoom;
     }
 
@@ -550,104 +554,87 @@ impl PDFView {
         }
 
         let mut new_visible = Vec::new();
-        let origin = self.get_origin(viewport_rect);
-        let active_spread = self.get_spread_indices(self.active_page, layouts.len());
 
-        for layout in layouts {
-            if self.display_mode == DisplayMode::SinglePage && layout.index != self.active_page {
-                continue;
+        for (layout, page_rect) in self.visible_page_rects(viewport_rect, layouts) {
+            new_visible.push(layout.index);
+            let is_selected = selected_pages.contains(&layout.index);
+
+            // A thumbnail is this page's whole appearance, so it is painted before the
+            // placeholder decides whether anything is missing.
+            let thumbnail = match pixels {
+                PagePixels::Thumbnails(map) => map.get(&layout.index).copied(),
+                PagePixels::Viewport(_) => None,
+            };
+            if let Some(tid) = thumbnail {
+                ui.painter().image(
+                    tid,
+                    page_rect,
+                    egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                    egui::Color32::WHITE,
+                );
+            } else if thumbnail.is_none() && !scenes.contains_key(&layout.index) {
+                Self::draw_placeholder_card(ui.painter(), page_rect, layout.index);
+            } else if matches!(pixels, PagePixels::Thumbnails(_)) {
+                // The scene is ready but its thumbnail is not yet: this frame made its
+                // quota. Say so rather than showing a blank page backing.
+                Self::draw_placeholder_card(ui.painter(), page_rect, layout.index);
             }
-            if self.display_mode == DisplayMode::TwoPageSingle
-                && !active_spread.contains(&layout.index)
-            {
-                continue;
+
+            // Page selection border. Selecting pages is the tile view's, so showing a
+            // selection is too: a selection made there survives being zoomed into and
+            // would otherwise mark a page the reader cannot select, deselect, or act
+            // on. The state is kept, only not drawn.
+            if is_selected && self.selects_pages() {
+                ui.painter().rect_stroke(
+                    page_rect,
+                    3.0,
+                    egui::Stroke::new(2.5_f32, crate::app::theme::colors::RUST_PRIMARY),
+                    egui::StrokeKind::Outside,
+                );
+            } else if !self.is_page_view() {
+                ui.painter().rect_stroke(
+                    page_rect,
+                    3.0,
+                    egui::Stroke::new(1.0_f32, crate::app::theme::colors::STEEL_BORDER),
+                    egui::StrokeKind::Outside,
+                );
             }
-            let page_rect = egui::Rect::from_min_size(
-                origin + layout.rect.min.to_vec2() * self.zoom,
-                layout.rect.size() * self.zoom,
+
+            // Page number. The gap it sits in is in page units and the number is in
+            // screen pixels, so the space shrinks with the zoom while the digits do
+            // not: at 33% a 48-unit gap is 16 pixels and the number lands on the page
+            // below. The gap is passed so the number can decline to be drawn.
+            let gap = if self.is_page_view() {
+                crate::app::FepdfApp::PAGE_GAP
+            } else {
+                crate::app::FepdfApp::TILE_ROW_GAP
+            };
+            Self::draw_page_number_badge(
+                ui,
+                page_rect,
+                layout.index,
+                is_selected && self.selects_pages(),
+                self.zoom,
+                gap * self.zoom,
             );
 
-            if viewport_rect.intersects(page_rect) {
-                new_visible.push(layout.index);
-                let is_selected = selected_pages.contains(&layout.index);
+            // Overlays
+            self.draw_selection_highlights(ui, layout.index, highlights);
+            self.draw_redaction_highlights(ui, layout.index, redaction_highlights);
+            self.draw_active_redaction_drag(ui, layout.index, active_redaction_drag);
+            self.draw_structural_highlight(ui, layout.index, structural_highlight);
+            self.draw_signature_highlight(ui, layout.index, signature_highlight);
 
-                // A thumbnail is this page's whole appearance, so it is painted before the
-                // placeholder decides whether anything is missing.
-                let thumbnail = match pixels {
-                    PagePixels::Thumbnails(map) => map.get(&layout.index).copied(),
-                    PagePixels::Viewport(_) => None,
-                };
-                if let Some(tid) = thumbnail {
-                    ui.painter().image(
-                        tid,
-                        page_rect,
-                        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-                        egui::Color32::WHITE,
-                    );
-                } else if thumbnail.is_none() && !scenes.contains_key(&layout.index) {
-                    Self::draw_placeholder_card(ui.painter(), page_rect, layout.index);
-                } else if matches!(pixels, PagePixels::Thumbnails(_)) {
-                    // The scene is ready but its thumbnail is not yet: this frame made its
-                    // quota. Say so rather than showing a blank page backing.
-                    Self::draw_placeholder_card(ui.painter(), page_rect, layout.index);
-                }
-
-                // Page selection border. Selecting pages is the tile view's, so showing a
-                // selection is too: a selection made there survives being zoomed into and
-                // would otherwise mark a page the reader cannot select, deselect, or act
-                // on. The state is kept, only not drawn.
-                if is_selected && self.selects_pages() {
-                    ui.painter().rect_stroke(
-                        page_rect,
-                        3.0,
-                        egui::Stroke::new(2.5_f32, crate::app::theme::colors::RUST_PRIMARY),
-                        egui::StrokeKind::Outside,
-                    );
-                } else if !self.is_page_view() {
-                    ui.painter().rect_stroke(
-                        page_rect,
-                        3.0,
-                        egui::Stroke::new(1.0_f32, crate::app::theme::colors::STEEL_BORDER),
-                        egui::StrokeKind::Outside,
-                    );
-                }
-
-                // Page number. The gap it sits in is in page units and the number is in
-                // screen pixels, so the space shrinks with the zoom while the digits do
-                // not: at 33% a 48-unit gap is 16 pixels and the number lands on the page
-                // below. The gap is passed so the number can decline to be drawn.
-                let gap = if self.is_page_view() {
-                    crate::app::FepdfApp::PAGE_GAP
-                } else {
-                    crate::app::FepdfApp::TILE_ROW_GAP
-                };
-                Self::draw_page_number_badge(
+            if show_reading_order && let Some(ref root) = ust_registry.root {
+                Self::draw_semantic_borders(
                     ui,
                     page_rect,
-                    layout.index,
-                    is_selected && self.selects_pages(),
                     self.zoom,
-                    gap * self.zoom,
+                    layout.rect.height(),
+                    root,
+                    ust_registry.selected_node_id,
                 );
-
-                // Overlays
-                self.draw_selection_highlights(ui, layout.index, highlights);
-                self.draw_redaction_highlights(ui, layout.index, redaction_highlights);
-                self.draw_active_redaction_drag(ui, layout.index, active_redaction_drag);
-                self.draw_structural_highlight(ui, layout.index, structural_highlight);
-                self.draw_signature_highlight(ui, layout.index, signature_highlight);
-
-                if show_reading_order && let Some(ref root) = ust_registry.root {
-                    Self::draw_semantic_borders(
-                        ui,
-                        page_rect,
-                        self.zoom,
-                        layout.rect.height(),
-                        root,
-                        ust_registry.selected_node_id,
-                    );
-                    self.draw_reading_order_bar(ui, page_rect, root);
-                }
+                self.draw_reading_order_bar(ui, page_rect, root);
             }
         }
 
@@ -701,6 +688,39 @@ impl PDFView {
         }
     }
 
+    /// The pages the viewport shows, each with the rect it occupies on screen.
+    ///
+    /// **Which pages are shown is the display mode's decision**, and it stood written out
+    /// in both `draw_pages` and `draw_page_backings` — the same two guards, the same rect
+    /// arithmetic, the same intersection test. A page one drew and the other did not would
+    /// have shown as a backing with no page on it, or the reverse.
+    fn visible_page_rects<'a>(
+        &self,
+        viewport_rect: egui::Rect,
+        layouts: &'a [PageLayout],
+    ) -> Vec<(&'a PageLayout, egui::Rect)> {
+        let origin = self.get_origin(viewport_rect);
+        let active_spread = self.get_spread_indices(self.active_page, layouts.len());
+        layouts
+            .iter()
+            .filter(|layout| match self.display_mode {
+                DisplayMode::SinglePage => layout.index == self.active_page,
+                DisplayMode::TwoPageSingle => active_spread.contains(&layout.index),
+                DisplayMode::Continuous | DisplayMode::TwoPageSpread => true,
+            })
+            .map(|layout| {
+                (
+                    layout,
+                    egui::Rect::from_min_size(
+                        origin + layout.rect.min.to_vec2() * self.zoom,
+                        layout.rect.size() * self.zoom,
+                    ),
+                )
+            })
+            .filter(|(_, page_rect)| viewport_rect.intersects(*page_rect))
+            .collect()
+    }
+
     fn draw_page_backings(
         &self,
         painter: &egui::Painter,
@@ -708,36 +728,20 @@ impl PDFView {
         layouts: &[PageLayout],
         scenes: &std::collections::BTreeMap<usize, std::sync::Arc<vello::Scene>>,
     ) {
-        let origin = self.get_origin(viewport_rect);
-        let active_spread = self.get_spread_indices(self.active_page, layouts.len());
-        for layout in layouts {
-            if self.display_mode == DisplayMode::SinglePage && layout.index != self.active_page {
-                continue;
-            }
-            if self.display_mode == DisplayMode::TwoPageSingle
-                && !active_spread.contains(&layout.index)
-            {
-                continue;
-            }
-            let page_rect = egui::Rect::from_min_size(
-                origin + layout.rect.min.to_vec2() * self.zoom,
-                layout.rect.size() * self.zoom,
-            );
-            if viewport_rect.intersects(page_rect) {
-                if scenes.contains_key(&layout.index) {
-                    for offset in 1..=4 {
-                        painter.rect_filled(
-                            page_rect.translate(egui::vec2(
-                                f32::from(offset) * 1.5,
-                                f32::from(offset) * 1.5,
-                            )),
-                            4.0,
-                            egui::Color32::from_rgba_unmultiplied(30, 41, 59, 20 - offset * 4),
-                        );
-                    }
+        for (layout, page_rect) in self.visible_page_rects(viewport_rect, layouts) {
+            if scenes.contains_key(&layout.index) {
+                for offset in 1..=4 {
+                    painter.rect_filled(
+                        page_rect.translate(egui::vec2(
+                            f32::from(offset) * 1.5,
+                            f32::from(offset) * 1.5,
+                        )),
+                        4.0,
+                        egui::Color32::from_rgba_unmultiplied(30, 41, 59, 20 - offset * 4),
+                    );
                 }
-                painter.rect_filled(page_rect, 0.0, egui::Color32::WHITE);
             }
+            painter.rect_filled(page_rect, 0.0, egui::Color32::WHITE);
         }
     }
 
@@ -1145,6 +1149,52 @@ impl PDFView {
         }
     }
 
+    /// Moves to the page or spread after the current one, and says whether there was one.
+    ///
+    /// **A spread steps over both of its pages**: forward from `[1, 2]` is 3, not 2. That
+    /// rule, and its mirror in [`Self::page_back`], each stood in two places — once for the
+    /// vertical axis and once for the horizontal — inside a single function, which is what
+    /// its `RR-15 Limit: GUI` was paying for. Two axes deciding the same thing separately
+    /// is the shape [`CODING.md`'s Rule D](../../../CODING.md) names for frontends, arrived
+    /// at inside one.
+    fn page_forward(&mut self, layouts: &[PageLayout]) -> bool {
+        let total_pages = layouts.len();
+        let next = if self.display_mode == DisplayMode::TwoPageSingle {
+            self.get_spread_indices(self.active_page, total_pages)
+                .last()
+                .copied()
+                .filter(|&last| last + 1 < total_pages)
+                .map(|last| last + 1)
+        } else {
+            (self.active_page + 1 < total_pages).then_some(self.active_page + 1)
+        };
+        self.step_to(next, layouts)
+    }
+
+    /// Moves to the page or spread before the current one, and says whether there was one.
+    fn page_back(&mut self, layouts: &[PageLayout]) -> bool {
+        let prev = if self.display_mode == DisplayMode::TwoPageSingle {
+            self.get_spread_indices(self.active_page, layouts.len())
+                .first()
+                .copied()
+                .filter(|&first| first > 0)
+                .map(|first| first - 1)
+        } else {
+            (self.active_page > 0).then_some(self.active_page.saturating_sub(1))
+        };
+        self.step_to(prev, layouts)
+    }
+
+    /// Scrolls to `target` and forgets what the overscroll had accumulated getting there.
+    fn step_to(&mut self, target: Option<usize>, layouts: &[PageLayout]) -> bool {
+        let Some(target) = target else {
+            return false;
+        };
+        self.scroll_to_page(target, layouts);
+        self.overscroll_accumulator = egui::Vec2::ZERO;
+        true
+    }
+
     pub fn clamp_pan(&mut self, viewport_rect: egui::Rect, layouts: &[PageLayout]) {
         // RR-15 Limit: GUI
         if layouts.is_empty() {
@@ -1206,41 +1256,14 @@ impl PDFView {
                 }
 
                 if self.overscroll_accumulator.y.abs() > threshold {
-                    let total_pages = layouts.len();
                     if self.overscroll_accumulator.y < 0.0 {
                         // Pulled up / past bottom -> next page/spread
-                        if self.display_mode == DisplayMode::TwoPageSingle {
-                            let spread = self.get_spread_indices(self.active_page, total_pages);
-                            if let Some(&last_idx) = spread.last()
-                                && last_idx + 1 < total_pages
-                            {
-                                let next = last_idx + 1;
-                                self.scroll_to_page(next, layouts);
-                                self.overscroll_accumulator = egui::Vec2::ZERO;
-                                return;
-                            }
-                        } else if self.active_page + 1 < total_pages {
-                            let next = self.active_page + 1;
-                            self.scroll_to_page(next, layouts);
-                            self.overscroll_accumulator = egui::Vec2::ZERO;
+                        if self.page_forward(layouts) {
                             return;
                         }
                     } else {
                         // Pulled down / past top -> prev page/spread
-                        if self.display_mode == DisplayMode::TwoPageSingle {
-                            let spread = self.get_spread_indices(self.active_page, total_pages);
-                            if let Some(&first_idx) = spread.first()
-                                && first_idx > 0
-                            {
-                                let prev = first_idx - 1;
-                                self.scroll_to_page(prev, layouts);
-                                self.overscroll_accumulator = egui::Vec2::ZERO;
-                                return;
-                            }
-                        } else if self.active_page > 0 {
-                            let prev = self.active_page - 1;
-                            self.scroll_to_page(prev, layouts);
-                            self.overscroll_accumulator = egui::Vec2::ZERO;
+                        if self.page_back(layouts) {
                             return;
                         }
                     }
@@ -1254,45 +1277,18 @@ impl PDFView {
                 }
 
                 if self.overscroll_accumulator.x.abs() > threshold {
-                    let total_pages = layouts.len();
                     let is_r2l = self.binding_direction == BindingDirection::RightToLeft;
 
                     if (self.overscroll_accumulator.x < 0.0 && !is_r2l)
                         || (self.overscroll_accumulator.x > 0.0 && is_r2l)
                     {
                         // Go to next page/spread
-                        if self.display_mode == DisplayMode::TwoPageSingle {
-                            let spread = self.get_spread_indices(self.active_page, total_pages);
-                            if let Some(&last_idx) = spread.last()
-                                && last_idx + 1 < total_pages
-                            {
-                                let next = last_idx + 1;
-                                self.scroll_to_page(next, layouts);
-                                self.overscroll_accumulator = egui::Vec2::ZERO;
-                                return;
-                            }
-                        } else if self.active_page + 1 < total_pages {
-                            let next = self.active_page + 1;
-                            self.scroll_to_page(next, layouts);
-                            self.overscroll_accumulator = egui::Vec2::ZERO;
+                        if self.page_forward(layouts) {
                             return;
                         }
                     } else {
                         // Go to prev page/spread
-                        if self.display_mode == DisplayMode::TwoPageSingle {
-                            let spread = self.get_spread_indices(self.active_page, total_pages);
-                            if let Some(&first_idx) = spread.first()
-                                && first_idx > 0
-                            {
-                                let prev = first_idx - 1;
-                                self.scroll_to_page(prev, layouts);
-                                self.overscroll_accumulator = egui::Vec2::ZERO;
-                                return;
-                            }
-                        } else if self.active_page > 0 {
-                            let prev = self.active_page - 1;
-                            self.scroll_to_page(prev, layouts);
-                            self.overscroll_accumulator = egui::Vec2::ZERO;
+                        if self.page_back(layouts) {
                             return;
                         }
                     }
@@ -1308,6 +1304,34 @@ impl PDFView {
 #[cfg(test)]
 mod zoom_steps {
     use super::PDFView;
+
+    /// **The bound is applied wherever the zoom is set, and nothing checked it.**
+    /// Removing the clamp from `set_zoom` left every other zoom test passing: they step
+    /// along the ladder, and the ladder stays inside the bounds by construction. A caller
+    /// that sets a zoom directly — a fit computing one from a viewport width — is the case
+    /// the bound exists for, and it is the case that had no test.
+    #[test]
+    fn a_zoom_set_outside_the_bounds_is_brought_back_inside() {
+        let mut view = PDFView::new();
+        view.set_zoom(1000.0);
+        assert!(
+            (view.zoom() - *PDFView::ZOOM_BOUNDS.end()).abs() < f32::EPSILON,
+            "1000 was kept as {}",
+            view.zoom()
+        );
+        view.set_zoom(-5.0);
+        assert!(
+            (view.zoom() - *PDFView::ZOOM_BOUNDS.start()).abs() < f32::EPSILON,
+            "-5 was kept as {}",
+            view.zoom()
+        );
+        view.set_zoom(2.5);
+        assert!(
+            (view.zoom() - 2.5).abs() < f32::EPSILON,
+            "a zoom inside the bounds is left alone, not {}",
+            view.zoom()
+        );
+    }
 
     /// The defect the ladder replaces: from any zoom a pinch or a fit had produced,
     /// multiplying by 1.2 never arrived at 100%. Stepping does, from either side.
@@ -1541,5 +1565,257 @@ mod zoom_label {
 
         view.set_zoom(0.8134);
         assert_eq!(view.zoom_label(), "81.3%", "a fit says where it actually is");
+    }
+}
+
+#[cfg(test)]
+mod overscroll_paging {
+    use super::{BindingDirection, DisplayMode, PDFView, PageLayout, ScrollDirection};
+
+    /// Four pages, each 100 wide and 100 tall, spaced 120 apart down the page.
+    fn pages() -> Vec<PageLayout> {
+        (0..4)
+            .map(|i| PageLayout {
+                index: i,
+                rect: egui::Rect::from_min_max(
+                    egui::pos2(-50.0, i as f32 * 120.0),
+                    egui::pos2(50.0, (i as f32).mul_add(120.0, 100.0)),
+                ),
+            })
+            .collect()
+    }
+
+    /// Pulls the view past an edge from page 1 and says where it landed.
+    fn pull_from_page_one(mode: DisplayMode, dir: ScrollDirection, pan: egui::Vec2) -> usize {
+        let mut view = PDFView::new();
+        view.display_mode = mode;
+        view.scroll_direction = dir;
+        view.active_page = 1;
+        view.pan = pan;
+        view.clamp_pan(
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(400.0, 400.0)),
+            &pages(),
+        );
+        view.active_page
+    }
+
+    /// The same pull, in the same direction, must page the same way whether the document
+    /// scrolls vertically or horizontally.
+    ///
+    /// The two axes each carried their own copy of "step to the next page or spread" and
+    /// "step to the previous one" — four copies of two decisions inside one 158-line
+    /// function, which is what its `RR-15 Limit: GUI` was paying for.
+    #[test]
+    fn both_axes_page_forward_alike() {
+        assert_eq!(
+            pull_from_page_one(
+                DisplayMode::SinglePage,
+                ScrollDirection::Vertical,
+                egui::vec2(0.0, -500.0)
+            ),
+            2,
+            "vertical, pulled past the bottom"
+        );
+        assert_eq!(
+            pull_from_page_one(
+                DisplayMode::SinglePage,
+                ScrollDirection::Horizontal,
+                egui::vec2(-400.0, 0.0)
+            ),
+            2,
+            "horizontal, pulled past the right"
+        );
+    }
+
+    #[test]
+    fn both_axes_page_back_alike() {
+        assert_eq!(
+            pull_from_page_one(
+                DisplayMode::SinglePage,
+                ScrollDirection::Vertical,
+                egui::vec2(0.0, 200.0)
+            ),
+            0,
+            "vertical, pulled past the top"
+        );
+        assert_eq!(
+            pull_from_page_one(
+                DisplayMode::SinglePage,
+                ScrollDirection::Horizontal,
+                egui::vec2(400.0, 0.0)
+            ),
+            0,
+            "horizontal, pulled past the left"
+        );
+    }
+
+    /// A spread steps over both of its pages, not one — 1 and 2 are shown together, so
+    /// forward from them is 3 and back from them is 0.
+    #[test]
+    fn a_spread_steps_over_both_of_its_pages() {
+        assert_eq!(
+            pull_from_page_one(
+                DisplayMode::TwoPageSingle,
+                ScrollDirection::Vertical,
+                egui::vec2(0.0, -700.0)
+            ),
+            3,
+            "forward off the spread [1, 2]"
+        );
+        assert_eq!(
+            pull_from_page_one(
+                DisplayMode::TwoPageSingle,
+                ScrollDirection::Vertical,
+                egui::vec2(0.0, 300.0)
+            ),
+            0,
+            "back off the spread [1, 2]"
+        );
+    }
+
+    /// Right-to-left binding reverses which way a horizontal pull pages, and nothing else.
+    #[test]
+    fn right_to_left_binding_reverses_the_horizontal_axis_only() {
+        let mut view = PDFView::new();
+        view.display_mode = DisplayMode::SinglePage;
+        view.scroll_direction = ScrollDirection::Horizontal;
+        view.binding_direction = BindingDirection::RightToLeft;
+        view.active_page = 1;
+        view.pan = egui::vec2(400.0, 0.0);
+        view.clamp_pan(
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(400.0, 400.0)),
+            &pages(),
+        );
+        assert_eq!(view.active_page, 2, "pulled past the left, bound right-to-left");
+    }
+
+    /// A pull that stops short of the threshold pages nothing.
+    #[test]
+    fn a_pull_under_the_threshold_stays_put() {
+        assert_eq!(
+            pull_from_page_one(
+                DisplayMode::SinglePage,
+                ScrollDirection::Vertical,
+                egui::vec2(0.0, 60.0)
+            ),
+            1,
+            "60 is under the 80 the overscroll asks for"
+        );
+    }
+}
+
+#[cfg(test)]
+mod spread_pairing {
+    use super::PDFView;
+
+    /// **This is the one place that decides which pages are shown together.**
+    ///
+    /// `fit_to_width` and `fit_to_height` each carried their own copy of the arithmetic,
+    /// so the rule stood in three places. The copies agreed with this one for every page
+    /// index of every non-empty document — the substitution that removed them changes
+    /// nothing — but a rule in three places is a rule that drifts, and only this one was
+    /// reachable from a test.
+    #[test]
+    fn a_cover_stands_alone_and_the_rest_pair_off_after_it() {
+        let mut view = PDFView::new();
+        view.cover_page_alone = true;
+        let spreads: Vec<Vec<usize>> = (0..6).map(|p| view.get_spread_indices(p, 6)).collect();
+        assert_eq!(
+            spreads,
+            vec![vec![0], vec![1, 2], vec![1, 2], vec![3, 4], vec![3, 4], vec![5],],
+            "cover alone, six pages"
+        );
+    }
+
+    #[test]
+    fn without_a_cover_the_pairing_starts_at_the_first_page() {
+        let mut view = PDFView::new();
+        view.cover_page_alone = false;
+        let spreads: Vec<Vec<usize>> = (0..5).map(|p| view.get_spread_indices(p, 5)).collect();
+        assert_eq!(
+            spreads,
+            vec![vec![0, 1], vec![0, 1], vec![2, 3], vec![2, 3], vec![4]],
+            "no cover, five pages"
+        );
+    }
+
+    /// An empty document has no spread. The copies answered `[current_page]`, naming a
+    /// page that is not there; both callers then found no layout for it and did nothing,
+    /// which is what this says instead.
+    #[test]
+    fn an_empty_document_has_no_spread() {
+        let view = PDFView::new();
+        assert!(view.get_spread_indices(0, 0).is_empty());
+        assert!(view.get_spread_indices(3, 0).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod visible_pages {
+    use super::{DisplayMode, PDFView, PageLayout};
+
+    /// Six pages, each 100 tall, spaced 120 apart, in a viewport tall enough for all six.
+    fn pages() -> Vec<PageLayout> {
+        (0..6)
+            .map(|i| PageLayout {
+                index: i,
+                rect: egui::Rect::from_min_max(
+                    egui::pos2(-50.0, i as f32 * 120.0),
+                    egui::pos2(50.0, (i as f32).mul_add(120.0, 100.0)),
+                ),
+            })
+            .collect()
+    }
+
+    fn shown(mode: DisplayMode, active: usize) -> Vec<usize> {
+        let mut view = PDFView::new();
+        view.display_mode = mode;
+        view.active_page = active;
+        let layouts = pages();
+        view.visible_page_rects(
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(400.0, 2000.0)),
+            &layouts,
+        )
+        .into_iter()
+        .map(|(layout, _)| layout.index)
+        .collect()
+    }
+
+    /// **The display mode decides which pages are drawn.** `draw_pages` and
+    /// `draw_page_backings` each decided it separately; a page one drew and the other did
+    /// not would have been a backing with no page on it, or a page with no backing.
+    #[test]
+    fn a_single_page_mode_shows_the_active_page_and_nothing_else() {
+        assert_eq!(shown(DisplayMode::SinglePage, 2), vec![2]);
+        assert_eq!(shown(DisplayMode::SinglePage, 0), vec![0]);
+    }
+
+    #[test]
+    fn a_single_spread_shows_both_of_its_pages_and_nothing_else() {
+        assert_eq!(shown(DisplayMode::TwoPageSingle, 2), vec![1, 2]);
+        assert_eq!(shown(DisplayMode::TwoPageSingle, 0), vec![0], "the cover is alone");
+    }
+
+    #[test]
+    fn the_scrolling_modes_show_everything_the_viewport_reaches() {
+        assert_eq!(shown(DisplayMode::Continuous, 2), vec![0, 1, 2, 3, 4, 5]);
+        assert_eq!(shown(DisplayMode::TwoPageSpread, 2), vec![0, 1, 2, 3, 4, 5]);
+    }
+
+    /// A page the viewport does not reach is not drawn, whatever the mode says.
+    #[test]
+    fn a_page_off_the_viewport_is_not_shown() {
+        let mut view = PDFView::new();
+        view.display_mode = DisplayMode::Continuous;
+        let layouts = pages();
+        let shown: Vec<usize> = view
+            .visible_page_rects(
+                egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(400.0, 300.0)),
+                &layouts,
+            )
+            .into_iter()
+            .map(|(layout, _)| layout.index)
+            .collect();
+        assert_eq!(shown, vec![0, 1, 2], "the fourth page starts at 380, past a 300-tall viewport");
     }
 }

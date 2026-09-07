@@ -47,44 +47,6 @@ impl SidebarPanel {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub fn show_document_info_unified(
-        &mut self,
-        ui: &mut egui::Ui,
-        tx_worker: &Sender<WorkerRequest>,
-        pdf_name: &Option<String>,
-        total_pages: usize,
-        metadata: &Option<fepdf::MetadataInfo>,
-        file_size: Option<usize>,
-        pdf_version: &Option<String>,
-        security_method: &Option<String>,
-        permissions: Option<i32>,
-        page_sizes: &[(f64, f64)],
-        fonts: &[fepdf::FontSummary],
-        layers: &[fepdf::LayerRow],
-        decisions: &[fepdf::Decision],
-        locale_mgr: &LocaleManager,
-        active_lang: &str,
-    ) {
-        document_info::show_document_info(
-            ui,
-            tx_worker,
-            pdf_name,
-            total_pages,
-            metadata,
-            file_size,
-            pdf_version,
-            security_method,
-            permissions,
-            page_sizes,
-            fonts,
-            layers,
-            decisions,
-            locale_mgr,
-            active_lang,
-        );
-    }
-
     fn render_accessibility_tab_content(
         &mut self,
         ui: &mut egui::Ui,

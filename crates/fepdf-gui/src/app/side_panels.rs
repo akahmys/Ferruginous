@@ -217,7 +217,7 @@ impl FepdfApp {
                     |ui| match self.active_drawer {
                         ActiveDrawer::None => {}
                         ActiveDrawer::DocumentInfo => {
-                            self.sidebar_panel.show_document_info_unified(
+                            crate::sidebar::document_info::show_document_info(
                                 ui,
                                 &self.tx_worker,
                                 &self.pdf_name,
