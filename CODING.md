@@ -233,7 +233,7 @@ drift, silently, because nothing compares them. That has already happened here
 
 | | Checked by |
 | :--- | :--- |
-| **Rules A–C** | Cargo. Every frontend declares `fepdf` and nothing else; `status.sh` counts internal dependencies that are not the facade, and greps for arena types arriving another way. Both expect 0. |
+| **Rules A–C** | Cargo, through [`scripts/audit/layering.py`](scripts/audit/layering.py) in the audit. A frontend declares `fepdf` and a library that stands above it ([ADR-0082](docs/adr/0082-the-script-crate-is-a-library-the-frontends-call.md)); no arena type appears above the facade at all. Both expect 0, and the audit fails on either. `status.sh` reports what that script returns. **It reported them and nothing gated on either until 2026-09-07**, when a frontend gained a dependency the row counted and the audit passed regardless. |
 | **Rule D** | `status.sh` counts document-mutating `&mut self` methods on the facade and expects 0. `apply` is the only way in. |
 | **RR-15** | [`scripts/audit/verify_compliance.sh`](scripts/audit/verify_compliance.sh) |
 | **Lints** | `cargo clippy --workspace --all-targets -- -D warnings`. `--all-targets` is required, or tests, examples and benches go unlinted. |

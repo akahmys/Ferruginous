@@ -84,16 +84,15 @@ row "files still referencing lopdf (expect 0)" "$lopdf"
 # absent from both lists is invisible, which is worse than being in the wrong one.
 # So: the engine is every crate that is not a frontend, and the two lists are complements
 # by construction. Adding a crate to the workspace puts it in one of them.
-FRONTEND_CRATES="fepdf-cli fepdf-gui fepdf-mcp fepdf-script fepdf-wasm"
-# The one list that is written down, so the one that can go stale. A name here that is
-# not a crate silently moves that crate into the *engine* half — the partition still
-# covers everything, and covers it wrongly. Checked rather than trusted.
-for crate_name in $FRONTEND_CRATES; do
-    [ -d "crates/$crate_name/src" ] || {
-        row "frontend list" "BROKEN — FRONTEND_CRATES names $crate_name, which is not a crate"
-        BROKEN=1
-    }
-done
+# Membership is `scripts/audit/layering.py`'s, which the audit gates on: four frontends
+# and one library they call. `fepdf-script` is the library — it has no entry point, which
+# is what ADR-0082 settled after four phases of it having no caller. Read from there rather
+# than repeated: written twice, the two lists are free to disagree, and the one that is
+# wrong is the one nobody re-reads. That script checks the names are crates.
+FRONTEND_CRATES=$(python3 -c "
+import sys; sys.path.insert(0, 'scripts/audit')
+import layering; print(' '.join(layering.ABOVE_FACADE))
+")
 engine_dirs=""; frontend_dirs=""
 for crate_dir in crates/*/; do
     name=$(basename "$crate_dir")
@@ -392,22 +391,18 @@ row "Decision sites in the engine" "$decisions"
 # `FallbackFontType`, and the facade re-exports both.
 #
 # The row counts internal dependencies that are not `fepdf`, over the four frontends.
-frontend_deps=0
-for crate_name in $FRONTEND_CRATES; do
-    extra=$(grep -oE '^fepdf[a-z-]*' "crates/$crate_name/Cargo.toml" 2>/dev/null \
-        | sort -u | grep -vx "fepdf" | grep -vx "$crate_name" | wc -l | tr -d ' ')
-    frontend_deps=$((frontend_deps + extra))
-done
-row "Rule A: frontend deps that are not the facade (expect 0)" "$frontend_deps"
+layering=$(python3 scripts/audit/layering.py 2>/dev/null | head -1)
+frontend_deps=$(printf '%s' "$layering" | sed -n 's/.*declarations=\([0-9]*\).*/\1/p')
+row "Rule A: frontend deps that are neither the facade nor above it (expect 0)" \
+    "${frontend_deps:-BROKEN}"
 
 # ARCHITECTURE.md 4 justified Rule A with "9 references and 2". Cargo has since made
 # both impossible (5.7), so anything but 0 means a frontend gained a direct dependency.
 #
 # `$frontend_dirs` and not the four names again: written twice, the two lists are free to
 # disagree, and the one that is wrong is the one nobody re-reads.
-leak=$(grep -rn "PdfArena\|Handle<" $frontend_dirs \
-    --include="*.rs" 2>/dev/null | wc -l | tr -d ' ')
-row "Rule A leaks: arena types in frontends (expect 0)" "$leak"
+leak=$(printf '%s' "$layering" | sed -n 's/.*leaks=\([0-9]*\).*/\1/p')
+row "Rule A leaks: arena types above the facade (expect 0)" "${leak:-BROKEN}"
 
 # ROADMAP.md quotes "10 of ~30 catalogue entries typed". Both halves are derived:
 # the numerator from `PdfCatalog`'s `#[pdf_key]` attributes, the denominator from the

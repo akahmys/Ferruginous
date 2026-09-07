@@ -146,3 +146,4 @@ quietly wrong — which is the failure this log exists to make visible.
 | 0079 | [The pre-parsed command form stays eager](0079-the-pre-parsed-command-form-stays-eager.md) | Closes 0077's open question |
 | 0080 | [A design document does not carry a number that moves](0080-a-design-document-does-not-carry-a-number-that-moves.md) | — |
 | 0081 | [The writing rules had nothing behind them](0081-the-writing-rules-had-nothing-behind-them.md) | Enforces 0039 |
+| 0082 | [The script crate is a library the frontends call](0082-the-script-crate-is-a-library-the-frontends-call.md) | Amends 0025, after 0032 |
