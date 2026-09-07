@@ -508,3 +508,22 @@ fn page_decoration_refuses_an_unparsable_selection() {
     assert!(result.is_err(), "\"2,3\" should be refused, not read as every page");
     assert!(!std::path::Path::new(&dest).exists(), "and should write no document");
 }
+
+// --- what the server tells a client it has -------------------------------------------
+
+/// **A capability this server does not declare is one no client asks for.**
+///
+/// `prompts` and `resources` were `None` in `ServerCapabilities`, and `serde` drops a
+/// `None` capability from the response, so `initialize` answered with a capability object
+/// naming tools alone. Two prompt templates and three resource readers existed, were
+/// tested, and were unreachable: a conforming client stopped at this response and never
+/// sent `prompts/list` or `resources/list`. Nothing here went through the protocol, so
+/// nothing noticed — every other test in this file calls the `_impl` functions directly.
+#[test]
+fn the_server_declares_every_capability_it_serves() {
+    use rmcp::handler::server::ServerHandler as _;
+    let capabilities = fepdf_mcp::FepdfServer.get_info().capabilities;
+    assert!(capabilities.tools.is_some(), "tools");
+    assert!(capabilities.prompts.is_some(), "prompts");
+    assert!(capabilities.resources.is_some(), "resources");
+}

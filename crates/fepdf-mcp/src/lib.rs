@@ -39,7 +39,7 @@ mod server;
 /// The library of tools available to the MCP server.
 pub mod tools;
 
-pub use server::run_server;
+pub use server::{FepdfServer, run_server};
 
 #[cfg(test)]
 mod tests {

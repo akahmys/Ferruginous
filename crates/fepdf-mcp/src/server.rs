@@ -40,7 +40,78 @@ pub struct FepdfServer;
 #[tool_handler]
 #[allow(unknown_lints)]
 #[allow(clippy::unused_async_trait_impl)]
-impl ServerHandler for FepdfServer {}
+impl ServerHandler for FepdfServer {
+    /// What this server tells a client it has, at `initialize`.
+    ///
+    /// **`#[tool_handler]` writes this method when nothing else does, and what it writes
+    /// depends on which routers the type carries** — a `#[tool_router]` earns
+    /// `.enable_tools()`, a `#[prompt_router]` earns `.enable_prompts()`, and there is no
+    /// resource router to earn anything. With only the first of those, `prompts` and
+    /// `resources` stayed `None` in `ServerCapabilities`, and `serde` drops a `None`
+    /// capability from the response entirely: a client read a capability object naming
+    /// tools alone and correctly concluded this server had no prompts and no resources.
+    /// It was right. Both are served below, so both are declared here.
+    fn get_info(&self) -> rmcp::model::ServerInfo {
+        rmcp::model::ServerInfo::new(
+            rmcp::model::ServerCapabilities::builder()
+                .enable_tools()
+                .enable_prompts()
+                .enable_resources()
+                .build(),
+        )
+    }
+
+    async fn list_prompts(
+        &self,
+        _request: Option<rmcp::model::PaginatedRequestParams>,
+        _context: rmcp::service::RequestContext<rmcp::RoleServer>,
+    ) -> Result<rmcp::model::ListPromptsResult, rmcp::ErrorData> {
+        Ok(rmcp::model::ListPromptsResult {
+            prompts: crate::prompts::catalogue(),
+            ..Default::default()
+        })
+    }
+
+    async fn get_prompt(
+        &self,
+        request: rmcp::model::GetPromptRequestParams,
+        _context: rmcp::service::RequestContext<rmcp::RoleServer>,
+    ) -> Result<rmcp::model::GetPromptResult, rmcp::ErrorData> {
+        crate::prompts::get(&request.name, request.arguments.as_ref())
+    }
+
+    /// Empty: every resource this server serves names a file, so they are templates.
+    async fn list_resources(
+        &self,
+        _request: Option<rmcp::model::PaginatedRequestParams>,
+        _context: rmcp::service::RequestContext<rmcp::RoleServer>,
+    ) -> Result<rmcp::model::ListResourcesResult, rmcp::ErrorData> {
+        Ok(rmcp::model::ListResourcesResult::default())
+    }
+
+    async fn list_resource_templates(
+        &self,
+        _request: Option<rmcp::model::PaginatedRequestParams>,
+        _context: rmcp::service::RequestContext<rmcp::RoleServer>,
+    ) -> Result<rmcp::model::ListResourceTemplatesResult, rmcp::ErrorData> {
+        Ok(rmcp::model::ListResourceTemplatesResult {
+            resource_templates: crate::resources::templates(),
+            ..Default::default()
+        })
+    }
+
+    async fn read_resource(
+        &self,
+        request: rmcp::model::ReadResourceRequestParams,
+        _context: rmcp::service::RequestContext<rmcp::RoleServer>,
+    ) -> Result<rmcp::model::ReadResourceResult, rmcp::ErrorData> {
+        let body = crate::resources::read(&request.uri)?;
+        Ok(rmcp::model::ReadResourceResult::new(vec![rmcp::model::ResourceContents::text(
+            body,
+            &request.uri,
+        )]))
+    }
+}
 
 #[tool_router]
 impl FepdfServer {
@@ -497,14 +568,20 @@ impl Default for FepdfServer {
 pub async fn run_server() -> Result<(), Box<dyn std::error::Error>> {
     let server = FepdfServer::new();
     let tools = FepdfServer::tool_router();
-    // Counted, not quoted. This read "24 Operation tools and Resource/Prompt support"
-    // while the router carried 36 and nothing served a resource or a prompt.
+    // Counted, not quoted. Each of these three read "24 Operation tools and
+    // Resource/Prompt support": the router carried 36, and nothing served a resource or a
+    // prompt at all.
     let tool_count = tools.list_all().len();
+    let prompt_count = crate::prompts::catalogue().len();
+    let template_count = crate::resources::templates().len();
     let router = Router::new(server).with_tools(tools);
 
     let transport = rmcp::transport::stdio();
 
-    println!("fepdf MCP Server starting on stdio with {tool_count} tools...");
+    println!(
+        "fepdf MCP Server starting on stdio with {tool_count} tools, {prompt_count} prompts \
+         and {template_count} resource templates..."
+    );
     router.serve(transport).await.map_err(|e| format!("Server error: {e}"))?;
 
     Ok(())
