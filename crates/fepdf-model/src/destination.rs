@@ -30,6 +30,7 @@
 //! only one of 11,917 distinct names in that file, and nothing in this engine could
 //! have said so before.
 
+use crate::access::dict_of;
 use crate::arena::PdfArena;
 use crate::handle::Handle;
 use crate::object::Object;
@@ -414,10 +415,6 @@ fn string_bytes(object: &Object, arena: &PdfArena) -> Option<Vec<u8>> {
         Object::Text(text) => Some(text.into_bytes()),
         _ => None,
     }
-}
-
-fn dict_of(arena: &PdfArena, object: &Object) -> Option<Dict> {
-    arena.get_dict(object.resolve(arena).as_dict_handle()?)
 }
 
 fn array_of(arena: &PdfArena, object: &Object) -> Option<Vec<Object>> {

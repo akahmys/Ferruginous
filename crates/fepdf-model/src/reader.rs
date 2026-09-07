@@ -936,6 +936,37 @@ fn expect_unsigned(lexer: &mut Lexer, at: usize) -> PdfResult<i64> {
     }
 }
 
+/// Reads `bytes` at the byte level and hands back the raw document, what reading it
+/// decided, and its catalogue.
+///
+/// **The preamble of every survey that takes a `&[u8]`.** `SignatureReport::survey` and
+/// `InteractiveReport::survey` each carried these thirteen lines, ADR-0074's comment
+/// included: one copy of the file rather than one copy of its tail per object inside
+/// `parse_indirect_at`, then pass 0, then the catalogue. Without the unlock the report
+/// describes the file's *ciphertext* — `samples/unicode_16.pdf` listed `/Lang` as a
+/// 32-byte string, which is one AES block and an IV rather than a language tag.
+///
+/// # Errors
+/// Fails when the file cannot be read or names no catalogue.
+pub(crate) fn survey_document(
+    bytes: &[u8],
+) -> PdfResult<(RawDocument, crate::interpretation::DecisionLog, crate::access::Dict)> {
+    // One copy of the file here, instead of one copy of its tail per object inside
+    // `parse_indirect_at` (ADR-0074). These entry points take a `&[u8]` from a public
+    // API; `Document::open` already holds a `Bytes` and passes it through untouched.
+    let raw = load_document(&bytes::Bytes::copy_from_slice(bytes))?;
+    let mut decisions = raw.decisions.clone();
+    crate::decrypt::unlock_raw(&raw, crate::decrypt::Credentials::default(), &mut decisions)?;
+    let arena = &raw.arena;
+    let catalog = raw
+        .trailer
+        .and_then(|t| arena.get_dict(t))
+        .and_then(|d| d.get(&arena.name("Root")).cloned())
+        .and_then(|r| crate::access::dict_of(arena, &r))
+        .ok_or_else(|| PdfError::Arena("the file names no catalogue".into()))?;
+    Ok((raw, decisions, catalog))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

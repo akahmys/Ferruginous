@@ -8,23 +8,10 @@
 
 use fepdf_model::color::ResolvedColorSpace;
 use fepdf_model::graphics::Color;
-use fepdf_model::{Handle, Object, PdfArena, PdfName};
-use std::collections::BTreeMap;
+use fepdf_model::{Object, PdfArena, PdfName};
 
-fn dict(
-    arena: &PdfArena,
-    entries: Vec<(&str, Object)>,
-) -> Handle<BTreeMap<Handle<PdfName>, Object>> {
-    let mut map = BTreeMap::new();
-    for (key, value) in entries {
-        map.insert(arena.intern_name(PdfName::new(key)), value);
-    }
-    arena.alloc_dict(map)
-}
-
-fn nums(arena: &PdfArena, values: &[f64]) -> Object {
-    Object::Array(arena.alloc_array(values.iter().map(|v| Object::Real(*v)).collect()))
-}
+mod common;
+use common::{dict, nums};
 
 /// `[/CalRGB << … >>]`.
 fn cal_rgb(arena: &PdfArena, entries: Vec<(&str, Object)>) -> Object {

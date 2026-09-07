@@ -28,6 +28,7 @@
 //! the one that matters most and is the easiest to miss: nothing *points* at it, and its
 //! scripts run when the file opens.
 
+use crate::access::dict_of;
 use crate::arena::PdfArena;
 use crate::document::Document;
 use crate::document::entries::{DocumentRequirements, Requirement};
@@ -501,10 +502,6 @@ fn name_tree_entries(arena: &PdfArena, root: &Dict) -> Vec<(String, Object)> {
         }
     }
     out
-}
-
-fn dict_of(arena: &PdfArena, object: &Object) -> Option<Dict> {
-    arena.get_dict(object.resolve(arena).as_dict_handle()?)
 }
 
 fn array_of(arena: &PdfArena, object: Option<&Object>) -> Option<Vec<Object>> {

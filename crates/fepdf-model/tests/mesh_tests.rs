@@ -8,8 +8,10 @@
 //! the two the fixtures use. Those are here.
 
 use fepdf_model::graphics::{Color, TriangleMesh};
-use fepdf_model::{Handle, Object, PdfArena, PdfName};
-use std::collections::BTreeMap;
+use fepdf_model::{Object, PdfArena, PdfName};
+
+mod common;
+use common::{dict, nums};
 
 /// Writes fields at arbitrary bit widths, so a test can build a stream the padding rule
 /// actually applies to.
@@ -43,21 +45,6 @@ impl Bits {
             self.push(0, 1);
         }
     }
-}
-
-fn dict(
-    arena: &PdfArena,
-    entries: Vec<(&str, Object)>,
-) -> Handle<BTreeMap<Handle<PdfName>, Object>> {
-    let mut map = BTreeMap::new();
-    for (key, value) in entries {
-        map.insert(arena.intern_name(PdfName::new(key)), value);
-    }
-    arena.alloc_dict(map)
-}
-
-fn nums(arena: &PdfArena, values: &[f64]) -> Object {
-    Object::Array(arena.alloc_array(values.iter().map(|v| Object::Real(*v)).collect()))
 }
 
 fn name(arena: &PdfArena, n: &str) -> Object {

@@ -21,7 +21,6 @@
 //! [ADR-0013]: ../../../../docs/adr/0013-a-document-is-one-normalised-state.md
 
 use crate::arena::PdfArena;
-use crate::decrypt::Credentials;
 use crate::error::{PdfError, PdfResult};
 use crate::interactive::{array_of, dict_of, name_of};
 use crate::object::Object;
@@ -78,19 +77,8 @@ impl SignatureReport {
     /// Fails when the file cannot be read or names no catalogue. A signature that does
     /// not verify is a result, not an error: the question was asked and answered.
     pub fn survey(bytes: &[u8]) -> PdfResult<Self> {
-        // One copy of the file here, instead of one copy of its tail per object inside
-        // `parse_indirect_at` (ADR-0074). These entry points take a `&[u8]` from a public
-        // API; `Document::open` already holds a `Bytes` and passes it through untouched.
-        let raw = reader::load_document(&bytes::Bytes::copy_from_slice(bytes))?;
-        let mut decisions = raw.decisions.clone();
-        crate::decrypt::unlock_raw(&raw, Credentials::default(), &mut decisions)?;
+        let (raw, decisions, catalog) = reader::survey_document(bytes)?;
         let arena = &raw.arena;
-        let catalog = raw
-            .trailer
-            .and_then(|t| arena.get_dict(t))
-            .and_then(|d| d.get(&arena.name("Root")).cloned())
-            .and_then(|r| dict_of(arena, &r))
-            .ok_or_else(|| PdfError::Arena("the file names no catalogue".into()))?;
 
         let mut signatures = Vec::new();
         let mut unsigned_fields = 0;

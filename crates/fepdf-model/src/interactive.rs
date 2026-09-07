@@ -28,7 +28,6 @@
 //! not a signal (ADR-0008).
 
 use crate::arena::PdfArena;
-use crate::decrypt::Credentials;
 use crate::destination::{Lookup, NamedDestinations};
 use crate::error::{PdfError, PdfResult};
 use crate::handle::DictHandle;
@@ -336,22 +335,8 @@ impl InteractiveReport {
     /// # Errors
     /// Fails when the file cannot be read or names no catalogue.
     pub fn survey(bytes: &[u8]) -> PdfResult<Self> {
-        // One copy of the file here, instead of one copy of its tail per object inside
-        // `parse_indirect_at` (ADR-0074). These entry points take a `&[u8]` from a public
-        // API; `Document::open` already holds a `Bytes` and passes it through untouched.
-        let raw = reader::load_document(&bytes::Bytes::copy_from_slice(bytes))?;
-        // Pass 0, as `Document::open` runs it. Without this the report describes the
-        // file's *ciphertext*: `samples/unicode_16.pdf` listed `/Lang` as a 32-byte
-        // string, which is one AES block and an IV, not a language tag.
-        let mut decisions = raw.decisions.clone();
-        crate::decrypt::unlock_raw(&raw, Credentials::default(), &mut decisions)?;
+        let (raw, decisions, catalog) = reader::survey_document(bytes)?;
         let arena = &raw.arena;
-        let catalog = raw
-            .trailer
-            .and_then(|t| arena.get_dict(t))
-            .and_then(|d| d.get(&arena.name("Root")).cloned())
-            .and_then(|r| dict_of(arena, &r))
-            .ok_or_else(|| PdfError::Arena("the file names no catalogue".into()))?;
 
         let pages = collect_pages(arena, &catalog);
         let named = NamedDestinations::collect(arena, &catalog);

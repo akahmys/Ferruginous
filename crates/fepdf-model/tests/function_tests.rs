@@ -8,24 +8,11 @@
 
 use fepdf_model::function::{FunctionSet, PdfFunction};
 use fepdf_model::object::SublimatedData;
-use fepdf_model::{Handle, Object, PdfArena, PdfName};
-use std::collections::BTreeMap;
+use fepdf_model::{Object, PdfArena};
 use std::sync::Arc;
 
-fn dict(
-    arena: &PdfArena,
-    entries: Vec<(&str, Object)>,
-) -> Handle<BTreeMap<Handle<PdfName>, Object>> {
-    let mut map = BTreeMap::new();
-    for (key, value) in entries {
-        map.insert(arena.intern_name(PdfName::new(key)), value);
-    }
-    arena.alloc_dict(map)
-}
-
-fn nums(arena: &PdfArena, values: &[f64]) -> Object {
-    Object::Array(arena.alloc_array(values.iter().map(|v| Object::Real(*v)).collect()))
-}
+mod common;
+use common::{dict, nums};
 
 fn ints(arena: &PdfArena, values: &[i64]) -> Object {
     Object::Array(arena.alloc_array(values.iter().map(|v| Object::Integer(*v)).collect()))
