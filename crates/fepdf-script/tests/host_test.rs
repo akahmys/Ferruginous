@@ -8,32 +8,21 @@
 use fepdf::PdfDocument;
 use fepdf_script::{DocumentHandle, ScriptEnvironment, ScriptError, ScriptHost};
 
+mod common;
+
 /// A one-page document, so `this.numPages` has something true to report.
 fn document() -> PdfDocument {
     let content = "0 0 0 rg 0 0 10 10 re f\n";
-    let bodies = [
-        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
-        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
-        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R >>".to_string(),
-        format!("<< /Length {} >>\nstream\n{content}endstream", content.len()),
-    ];
-    let mut out = b"%PDF-2.0\n".to_vec();
-    let mut offsets = Vec::new();
-    for (i, body) in bodies.iter().enumerate() {
-        offsets.push(out.len());
-        out.extend_from_slice(format!("{} 0 obj\n{body}\nendobj\n", i + 1).as_bytes());
-    }
-    let table_at = out.len();
-    let size = bodies.len() + 1;
-    out.extend_from_slice(format!("xref\n0 {size}\n0000000000 65535 f \n").as_bytes());
-    for offset in &offsets {
-        out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
-    }
-    out.extend_from_slice(
-        format!("trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{table_at}\n%%EOF\n")
-            .as_bytes(),
-    );
-    PdfDocument::open(out.into()).expect("the fixture opens")
+    PdfDocument::open(
+        common::assemble(&[
+            "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R >>".to_string(),
+            format!("<< /Length {} >>\nstream\n{content}endstream", content.len()),
+        ])
+        .into(),
+    )
+    .expect("the fixture opens")
 }
 
 fn host(environment: ScriptEnvironment) -> ScriptHost {
