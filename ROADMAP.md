@@ -2743,6 +2743,15 @@ Everything here was carried in a handoff note as a one-line hunch. Each is now a
       (`run_calculations`) over `Operation::SetFormFieldValue` to update computed fields
       without staling, with determinism injected and 0 C dependencies. All chosen subsets
       under 6.3.1 are now met.
+      **This said so for the four phases before anything called it.** `fepdf-script` is a
+      frontend and had no entry point — no binary depended on it, and `run_calculations`
+      was reached only by its own tests — so every field write still recorded the 12.6.3
+      `Violation` this phase exists to remove. `fepdf-mcp` calls it now, in
+      `tools::operations::apply_and_calculate`, which is the one path its two
+      field-writing tools share; `fepdf-cli` and `fepdf-gui` write no form field at all,
+      so there is nothing there to wire. A frontend that runs the scripts says so with
+      `Document::declare_script_processor`, and the `Violation` is what a frontend that
+      does not still gets.
 
 - [x] **Korean and Chinese document end-to-end extraction verified.** The four collections
       beyond Japan1 (`Adobe-Korea1`, `Adobe-GB1`, `Adobe-CNS1`, `Adobe-KR`) are read

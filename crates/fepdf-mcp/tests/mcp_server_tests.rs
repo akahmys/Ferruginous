@@ -25,10 +25,11 @@ use fepdf_mcp::tools::operations::vocabulary::{DuplicatePagesArgs, duplicate_pag
 use fepdf_mcp::tools::{
     AddAnnotationArgs, AddPageDecorationArgs, ApplyBatesNumberingArgs, AuditArgs, ExtractTextArgs,
     OutlineNodeArg, RedactDocumentArgs, RedactionTarget, RemovePagesArgs, ReorderPagesArgs,
-    RotatePagesArgs, UpdateOutlinesArgs, VerifySignaturesArgs, add_annotation_impl,
-    add_page_decoration_impl, apply_bates_numbering_impl, apply_redaction_impl,
-    audit_document_impl, extract_text_impl, remove_pages_impl, reorder_pages_impl,
-    rotate_pages_impl, update_outlines_impl, verify_signatures_impl,
+    RotatePagesArgs, SetFormFieldValueArgs, UpdateOutlinesArgs, VerifySignaturesArgs,
+    add_annotation_impl, add_page_decoration_impl, apply_bates_numbering_impl,
+    apply_redaction_impl, audit_document_impl, extract_text_impl, remove_pages_impl,
+    reorder_pages_impl, rotate_pages_impl, set_form_field_value_impl, update_outlines_impl,
+    verify_signatures_impl,
 };
 use std::fmt::Write as _;
 use std::path::PathBuf;
@@ -526,4 +527,66 @@ fn the_server_declares_every_capability_it_serves() {
     assert!(capabilities.tools.is_some(), "tools");
     assert!(capabilities.prompts.is_some(), "prompts");
     assert!(capabilities.resources.is_some(), "resources");
+}
+
+// --- the form's calculations, which the server now runs -------------------------------
+
+/// A form whose `total` is computed from `a` and `b`, with `/CO` naming the order.
+fn calculating_form() -> Vec<u8> {
+    let script = "event.value = Number\\(this.getField\\('a'\\).value\\) + \
+                  Number\\(this.getField\\('b'\\).value\\);";
+    let field = |name: &str, value: &str, calc: &str| {
+        format!(
+            "<< /Type /Annot /Subtype /Widget /FT /Tx /T ({name}) /V ({value}) \
+             /Rect [0 0 100 20] /F 4 /DA (/Helv 9 Tf 0 g) {calc} >>"
+        )
+    };
+    assemble(&[
+        "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [5 0 R 6 0 R 7 0 R] \
+          /CO [7 0 R] /DA (/Helv 9 Tf 0 g) >> >>"
+            .to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [5 0 R 6 0 R 7 0 R] \
+          /Contents 4 0 R >>"
+            .to_string(),
+        "<< /Length 0 >>\nstream\n\nendstream".to_string(),
+        field("a", "2", ""),
+        field("b", "3", ""),
+        field("total", "0", &format!("/AA << /C << /S /JavaScript /JS ({script}) >> >>")),
+    ])
+}
+
+/// **Setting a field runs the form's calculation order.**
+///
+/// It did not. `fepdf-script` executed ECMAScript and had done since Phase R, and nothing
+/// called `run_calculations` but its own tests, so every write through this server left
+/// the computed fields holding whatever the file had been saved with and recorded a
+/// `Violation` of 12.6.3 saying so. Here `total` is `a + b`: writing 10 into `a` makes it
+/// 13, and left uncalculated it stays 0.
+#[test]
+fn setting_a_field_recalculates_what_is_computed_from_it() {
+    let input = written("calc_in", &calculating_form());
+    let output = out("calc_out");
+
+    set_form_field_value_impl(SetFormFieldValueArgs {
+        input_path: input,
+        output_path: output.clone(),
+        field_name: "a".into(),
+        value_text: Some("10".into()),
+        value_bool: None,
+    })
+    .expect("the field is set");
+
+    let saved = fepdf::PdfDocument::open(std::fs::read(&output).expect("written").into())
+        .expect("the output opens");
+    assert_eq!(
+        fepdf::field_value(saved.inner(), "a").as_deref(),
+        Some("10"),
+        "the value that was written"
+    );
+    assert_eq!(
+        fepdf::field_value(saved.inner(), "total").as_deref(),
+        Some("13"),
+        "10 + 3, which only a calculation run produces"
+    );
 }

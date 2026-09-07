@@ -842,20 +842,30 @@ fn widgets_of(
     if widgets.is_empty() { vec![field_dh] } else { widgets }
 }
 
-/// Says what the scripts this processor does not run would have done (12.6.3).
+/// Says what the scripts this run does not execute would have done (12.6.3).
 ///
 /// **Setting one value can be the start of a cascade.** 12.6.3 says the effects of a
 /// field-related action are limited only by the action itself and may make any other
 /// modification to the document, and names the example directly: modifying a field value
-/// can trigger calculations and further formatting for *other* fields. This engine does
-/// not execute ECMAScript (12.6.4.17), which 6.3.2.1 permits — each processor chooses its
-/// subsets — but a caller writing a value into a form that calculates has to be told, or
-/// it gets a document whose fields disagree with each other and no sign that they do.
+/// can trigger calculations and further formatting for *other* fields. A caller writing a
+/// value into a form that calculates has to be told, or it gets a document whose fields
+/// disagree with each other and no sign that they do.
+///
+/// **Whether the scripts run is the frontend's to say, not this crate's.** `fepdf-script`
+/// executes them and sits above the facade, so an `Operation` arrives here before
+/// anything on this side can know
+/// ([ADR-0032](../../../../docs/adr/0032-running-scripts-is-a-frontend-verb-not-an-operation.md)).
+/// A frontend that will run them calls `Document::declare_script_processor`, and this
+/// stays quiet. One that does not gets the warning it had before, which is every caller
+/// that has not been wired.
 fn report_scripts_not_run(
     doc: &Document,
     acro: &BTreeMap<Handle<PdfName>, Object>,
     field_name: &str,
 ) {
+    if doc.runs_scripts() {
+        return;
+    }
     let arena = doc.arena();
     let calculated = acro
         .get(&arena.name("CO"))

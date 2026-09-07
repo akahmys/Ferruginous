@@ -2,8 +2,15 @@
 //!
 //! This is the measurement Phase R exists to move. 12.6.3 says a field-related action may
 //! "make any other modification to the document" and names the case directly: modifying a
-//! field value can trigger calculations for *other* fields. This engine writes the value
-//! and records a `Violation` saying it did not run them.
+//! field value can trigger calculations for *other* fields.
+//!
+//! **Whether they run is the frontend's to say.** `fepdf-script` executes them and sits
+//! above the facade, so an `Operation` reaches `fepdf-doc` before anything on that side
+//! can know ([ADR-0032](../../../docs/adr/0032-running-scripts-is-a-frontend-verb-not-an-operation.md)).
+//! A run that will follow with a script run says so through `declare_script_processor`
+//! and this stays quiet; one that does not gets the `Violation` it always got. Both
+//! halves are here, because a flag that is never checked and a flag that suppresses
+//! everything look the same from one side.
 //!
 //! **No file in either corpus can test this.** `/AA /C` occurs zero times across 524
 //! files. The document below is built here for the same reason
@@ -81,6 +88,26 @@ fn setting_a_value_in_a_calculating_form_reports_the_scripts_it_did_not_run() {
         found.action.contains("did not run"),
         "it has to say the value was written and the scripts were not: {}",
         found.action
+    );
+}
+
+/// **A run that will execute the scripts does not report skipping them.**
+///
+/// Until the MCP server called `run_calculations`, nothing did, and this `Violation` was
+/// true of every write. It is now true only of a caller that has not been wired, which is
+/// what the flag distinguishes.
+#[test]
+fn a_run_that_declares_a_script_processor_reports_nothing() {
+    let mut doc = PdfDocument::open(calculating_form().into()).expect("the fixture opens");
+    doc.inner().declare_script_processor();
+    doc.apply(Operation::SetFormFieldValue(FormFieldSpec {
+        name: "a".to_string(),
+        value: FormValue::Text("9".to_string()),
+    }))
+    .expect("the value is written");
+    assert!(
+        !doc.decisions().iter().any(|d| d.clause == "12.6.3"),
+        "the scripts are run by the caller, so nothing here reports otherwise"
     );
 }
 

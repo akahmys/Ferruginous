@@ -112,13 +112,14 @@ pub(crate) fn execute_single_op(
     msg: &str,
 ) -> Result<String, String> {
     let data = fs::read(input_path).map_err(|e| format!("Failed to read input file: {e}"))?;
-    let mut doc =
+    let doc =
         PdfDocument::open(Bytes::from(data)).map_err(|e| format!("Failed to open PDF: {e:?}"))?;
 
-    doc.apply(op).map_err(|e| format!("Operation failed: {e:?}"))?;
+    let handle = super::apply_and_calculate(doc, op)?;
 
     let out = Path::new(output_path);
-    doc.save_with_options(out, "2.0", &fepdf::SaveOptions::default())
+    handle
+        .with(|d| d.save_with_options(out, "2.0", &fepdf::SaveOptions::default()))
         .map_err(|e| format!("Failed to save modified PDF: {e:?}"))?;
 
     let res = PageOperationResult {

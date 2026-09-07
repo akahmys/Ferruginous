@@ -9,6 +9,7 @@ pub mod vocabulary;
 
 use bytes::Bytes;
 use fepdf::{Operation, PageSelection, PdfDocument};
+use fepdf_script::{DocumentHandle, ScriptEnvironment, run_calculations};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use std::fs;
@@ -25,6 +26,42 @@ pub struct ApplyOperationArgs {
     pub operation_json: String,
 }
 
+/// Applies `op`, then runs the form's calculation order over the result.
+///
+/// **12.6.3's cascade is the frontend's to run.** Setting a field value in a form that
+/// declares `/CO` is the start of a cascade — 12.6.3 names the example directly — and
+/// `apply` cannot run it: `fepdf-script` sits above the facade, so an `Operation` reaches
+/// `fepdf-doc` before anything can say whether the scripts will follow
+/// ([ADR-0032](../../../../../docs/adr/0032-running-scripts-is-a-frontend-verb-not-an-operation.md)).
+/// Until this, nothing called `run_calculations` but its own tests, and every field write
+/// through this server recorded a `Violation` of 12.6.3 saying the computed fields were
+/// now stale. They were.
+///
+/// The order runs after every operation rather than only after `SetFormFieldValue`: a form
+/// with no `/CO` returns from `run_calculations` before building a context, so the test
+/// would cost more to write than to skip.
+///
+/// **A run that does not complete puts the warning back.** Declaring a script processor
+/// and then not running one is worse than never declaring it — the engine stops naming a
+/// staleness that is now real — so the failure is recorded where `apply` would have
+/// recorded it.
+fn apply_and_calculate(doc: PdfDocument, op: Operation) -> Result<DocumentHandle, String> {
+    doc.inner().declare_script_processor();
+    let handle = DocumentHandle::new(doc);
+    handle.with_mut(|d| d.apply(op)).map_err(|e| format!("Operation failed: {e:?}"))?;
+    if let Err(why) = run_calculations(&handle, &ScriptEnvironment::default()) {
+        handle.with(|d| {
+            d.inner().record(fepdf::Decision::violation(
+                "12.6.3",
+                format!("the form's calculation order did not complete: {why:?}"),
+                "wrote the value and could not finish the scripts; fields computed from it \
+                 may be stale",
+            ));
+        });
+    }
+    Ok(handle)
+}
+
 /// Applies a generic raw Operation JSON to mutate a PDF document.
 pub fn apply_operation_impl(args: ApplyOperationArgs) -> Result<String, String> {
     let op: Operation = serde_json::from_str(&args.operation_json)
@@ -32,13 +69,14 @@ pub fn apply_operation_impl(args: ApplyOperationArgs) -> Result<String, String> 
 
     let data = fs::read(&args.input_path)
         .map_err(|e| format!("Failed to read input file '{}': {e}", args.input_path))?;
-    let mut doc =
+    let doc =
         PdfDocument::open(Bytes::from(data)).map_err(|e| format!("Failed to open PDF: {e:?}"))?;
 
-    doc.apply(op).map_err(|e| format!("Operation application failed: {e:?}"))?;
+    let handle = apply_and_calculate(doc, op)?;
 
     let out = Path::new(&args.output_path);
-    doc.save_with_options(out, "2.0", &fepdf::SaveOptions::default())
+    handle
+        .with(|d| d.save_with_options(out, "2.0", &fepdf::SaveOptions::default()))
         .map_err(|e| format!("Failed to save output PDF '{}': {e:?}", args.output_path))?;
 
     Ok(serde_json::json!({

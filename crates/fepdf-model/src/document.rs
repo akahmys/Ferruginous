@@ -471,6 +471,16 @@ pub struct Document {
     pub permissions: Option<i32>,
     /// Which password authenticated. `/P` restricts only [`Access::User`] (7.6.4.1).
     pub access: Option<fepdf_syntax::security::Access>,
+    /// Whether a script processor above this engine runs this document's ECMAScript.
+    ///
+    /// **Session state, not a property of the file.** It says what this run does and is
+    /// never written to the output. A frontend that will run the document's scripts
+    /// declares it with [`Self::declare_script_processor`], and the one site that would
+    /// otherwise record having skipped them reads it (12.6.3). `apply` cannot know: the
+    /// script processor sits above the facade, so an `Operation` reaches this crate
+    /// before anything can say whether the run will follow
+    /// ([ADR-0032](../../../docs/adr/0032-running-scripts-is-a-frontend-verb-not-an-operation.md)).
+    runs_scripts: std::sync::atomic::AtomicBool,
     /// What the source document was, for the output to record as its origin.
     pub provenance: Provenance,
     /// Optional-content groups a *viewer* has turned on or off, over what the
@@ -485,6 +495,21 @@ pub struct Document {
 }
 
 impl Document {
+    /// Says that this run executes the document's ECMAScript, so nothing reports skipping it.
+    ///
+    /// A frontend calls this before applying operations it will follow with a script run.
+    /// Declaring it and then not running is worse than not declaring it: the engine stops
+    /// warning about the staleness it would otherwise name.
+    pub fn declare_script_processor(&self) {
+        self.runs_scripts.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Whether [`Self::declare_script_processor`] was called on this document.
+    #[must_use]
+    pub fn runs_scripts(&self) -> bool {
+        self.runs_scripts.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     /// Records a decision taken about this document, through a shared reference.
     ///
     /// The interpreter holds `&Document` and departs from the standard while it runs —
@@ -530,6 +555,7 @@ impl Document {
             permissions: None,
             access: None,
             provenance: Provenance::default(),
+            runs_scripts: std::sync::atomic::AtomicBool::new(false),
             layer_overrides: parking_lot::Mutex::new(BTreeMap::new()),
         }
     }
@@ -554,6 +580,7 @@ impl Document {
             permissions: None,
             access: None,
             provenance: Provenance::default(),
+            runs_scripts: std::sync::atomic::AtomicBool::new(false),
             layer_overrides: parking_lot::Mutex::new(BTreeMap::new()),
         }
     }
