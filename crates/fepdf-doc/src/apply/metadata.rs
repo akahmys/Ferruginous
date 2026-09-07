@@ -63,6 +63,46 @@ pub fn create_embedded_filespec(
     arena.alloc_object(Object::Dictionary(filespec_dh))
 }
 
+/// Attaches an embedded file to the catalogue, in both the places 2.0 names it.
+///
+/// `/AF` (14.13) is the *association* — what this file is to the document — and
+/// `/Names/EmbeddedFiles` (7.11.4) is how a reader lists attachments. A file in one and
+/// not the other is either an association nothing can open or an attachment stating no
+/// relationship, so the two are written together.
+///
+/// **This stood written out twice**, in `apply_attach_associated_file` and in
+/// `apply_set_unencrypted_wrapper`, identical down to the `Object::Reference` arm that
+/// follows an indirect `/AF`. A document with no catalogue is left alone, as both copies
+/// left it.
+pub fn attach_to_catalog(
+    doc: &Document,
+    filename: String,
+    filespec_h: Handle<Object>,
+) -> PdfResult<()> {
+    let arena = doc.arena();
+    let Some(cah) = doc.catalog_handle() else {
+        return Ok(());
+    };
+    let cadh = doc.resolve_to_dict(cah)?;
+    let mut cdict = arena.get_dict(cadh).unwrap_or_default();
+
+    let af_key = arena.name("AF");
+    let mut af_items = match cdict.get(&af_key) {
+        Some(Object::Array(ah)) => arena.get_array(*ah).unwrap_or_default(),
+        Some(Object::Reference(h)) => match arena.get_object(*h) {
+            Some(Object::Array(ah)) => arena.get_array(ah).unwrap_or_default(),
+            _ => Vec::new(),
+        },
+        _ => Vec::new(),
+    };
+    af_items.push(Object::Reference(filespec_h));
+    let new_af_ah = arena.alloc_array(af_items);
+    cdict.insert(af_key, Object::Array(new_af_ah));
+    arena.set_dict(cadh, cdict);
+
+    add_embedded_files_to_catalog(doc, vec![(filename, filespec_h)])
+}
+
 /// Adds embedded filespec entries to the catalogue Names tree.
 pub fn add_embedded_files_to_catalog(
     doc: &Document,
@@ -407,34 +447,7 @@ pub fn apply_attach_associated_file(doc: &Document, file: AssociatedFile) -> Pdf
         Some(file.relationship),
     );
 
-    if let Some(cah) = doc.catalog_handle() {
-        let cadh = doc.resolve_to_dict(cah)?;
-        let mut cdict = arena.get_dict(cadh).unwrap_or_default();
-
-        let af_key = arena.name("AF");
-        let mut af_items = if let Some(existing_af) = cdict.get(&af_key) {
-            match existing_af {
-                Object::Array(ah) => arena.get_array(*ah).unwrap_or_default(),
-                Object::Reference(h) => {
-                    if let Some(Object::Array(ah)) = arena.get_object(*h) {
-                        arena.get_array(ah).unwrap_or_default()
-                    } else {
-                        Vec::new()
-                    }
-                }
-                _ => Vec::new(),
-            }
-        } else {
-            Vec::new()
-        };
-        af_items.push(Object::Reference(filespec_h));
-        let new_af_ah = arena.alloc_array(af_items);
-        cdict.insert(af_key, Object::Array(new_af_ah));
-        arena.set_dict(cadh, cdict);
-
-        add_embedded_files_to_catalog(doc, vec![(file.filename, filespec_h)])?;
-    }
-    Ok(())
+    attach_to_catalog(doc, file.filename, filespec_h)
 }
 
 /// Sets PDF/X or PDF/A OutputIntents dictionary (Clause 14.11.5).

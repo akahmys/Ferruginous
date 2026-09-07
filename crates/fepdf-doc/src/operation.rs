@@ -171,12 +171,13 @@ pub enum Operation {
     },
     /// Add a Document Security Store (`/DSS`, 12.8.4.3) carrying validation certificates.
     ///
-    /// **Untested, and the only piece of `/DSS` that exists.** It was a facade method
-    /// nothing called and no test exercised — code that writes a security structure, in
-    /// the crate that is supposed to only expose them. It is here rather than deleted
-    /// because the vocabulary is where the rest of long-term validation would go, and
-    /// here rather than left alone because a mutation outside the vocabulary is how two
-    /// implementations of one thing get started (Rule D).
+    /// **The only piece of `/DSS` that exists.** It was a facade method nothing called
+    /// and no test exercised — code that writes a security structure, in the crate that is
+    /// supposed to only expose them. It is here rather than deleted because the vocabulary
+    /// is where the rest of long-term validation would go, and here rather than left alone
+    /// because a mutation outside the vocabulary is how two implementations of one thing
+    /// get started (Rule D). `tests/security_store_test.rs` covers what it writes; it
+    /// stood untested while becoming an `fepdf-mcp` tool a client can call.
     AddLtvInfo {
         /// DER-encoded certificates, one stream each.
         certificates: Vec<Vec<u8>>,
