@@ -1861,22 +1861,14 @@ impl<'a, W: Write> PdfWriter<'a, W> {
                 }
             }
             Object::Dictionary(dh) | Object::Stream(dh, _) => {
-                if let Some(d) = self.arena.get_dict(*dh) {
-                    for (k, v) in d {
-                        let k_str = self.arena.get_name_str(k).unwrap_or_default();
-                        if exclude_keys.contains(&k_str.as_str()) {
-                            continue;
-                        }
-                        self.trace_reachable_inline(
-                            &v,
-                            reachable,
-                            assigned,
-                            stack,
-                            exclude_keys,
-                            exclude_objects,
-                        );
-                    }
-                }
+                self.trace_dict_keys(
+                    *dh,
+                    reachable,
+                    assigned,
+                    stack,
+                    exclude_keys,
+                    exclude_objects,
+                );
             }
             _ => {}
         }
