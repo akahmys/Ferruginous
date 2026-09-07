@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rule A, the half Cargo can decide: what stands above the facade, and what it declares.
+"""Rules A and D: what stands above the facade, what it declares, and what the facade lets in.
 
 `CODING.md`'s Rule A says storage abstractions stop at the facade, and its enforcement row
 says a frontend declares `fepdf` and nothing else. `status.sh` measured both and nothing
@@ -16,6 +16,13 @@ Two counts, both expecting 0:
 * **Arena leaks.** `PdfArena` and `Handle<T>` are how the object graph is stored and are
   not part of the caller's vocabulary. Above the facade they may not appear at all, in a
   frontend or in a library the frontends call.
+
+Rule D adds a third, also expecting 0: **a document is changed by `apply` and nothing
+else.** `CODING.md` called that "enforced by construction" for four phases while the facade
+exposed every mutation twice — as an `Operation` variant and as a plain method — and eight
+frontend call sites took the method. The property lives in the facade's own type now: a
+`&mut self` method on `crates/fepdf/src/lib.rs` that is not `apply`, and does not configure
+saving rather than change the document, is what makes this fail.
 
 The lists are here rather than in `status.sh`, which reports what this returns: written
 twice, the two are free to disagree, and the one that is wrong is the one nobody re-reads.
@@ -38,6 +45,14 @@ ABOVE_FACADE_LIBRARIES = ["fepdf-script"]
 ABOVE_FACADE = FRONTENDS + ABOVE_FACADE_LIBRARIES
 FACADE = "fepdf"
 ARENA = re.compile(r"PdfArena|Handle<")
+
+# The facade's one `&mut self` method that is neither `apply` nor a document change:
+# `set_system_fonts` fills a cache the renderer reads, and `fepdf-render`'s examples call
+# it. There were four. The other three configured a save, duplicating three fields of
+# `SaveOptions` that `save_with_options` never read, and only this crate's own tests
+# called them.
+SAVE_SETTINGS = {"set_system_fonts"}
+FACADE_SOURCE = ROOT / "crates" / "fepdf" / "src" / "lib.rs"
 
 
 def named_crates_exist() -> list[str]:
@@ -76,6 +91,26 @@ def arena_leaks() -> list[str]:
     return out
 
 
+def facade_mutators() -> list[str]:
+    """`&mut self` methods on the facade that are neither `apply` nor a save setting.
+
+    The signature is read to its opening brace rather than off the `fn` line: the first
+    version of this check missed `reorder_pages_batch`, whose signature spans two lines.
+    """
+    out, name, signature = [], None, ""
+    for line in FACADE_SOURCE.read_text().splitlines():
+        opening = re.match(r"    pub (?:async )?fn ([a-z_]+)", line)
+        if opening:
+            name, signature = opening.group(1), line
+        elif name is not None:
+            signature += " " + line
+        if name is not None and signature.rstrip().endswith("{"):
+            if "&mut self" in signature and name != "apply" and name not in SAVE_SETTINGS:
+                out.append(f"  the facade's `{name}` changes a document without an Operation")
+            name, signature = None, ""
+    return sorted(set(out))
+
+
 def main() -> int:
     broken = named_crates_exist()
     if broken:
@@ -83,12 +118,15 @@ def main() -> int:
         print("\n".join(broken))
         return 1
 
-    strays, leaks = stray_declarations(), arena_leaks()
-    print(f"declarations={len(strays)} leaks={len(leaks)}")
-    for line in strays + leaks:
+    strays, leaks, mutators = stray_declarations(), arena_leaks(), facade_mutators()
+    print(f"declarations={len(strays)} leaks={len(leaks)} mutators={len(mutators)}")
+    for line in strays + leaks + mutators:
         print(line)
     if strays or leaks:
         print("Rule A: a frontend declares the facade, and a library that stands above it")
+    if mutators:
+        print("Rule D: a document is changed by `apply` and nothing else")
+    if strays or leaks or mutators:
         return 1
     print("  PASS")
     return 0

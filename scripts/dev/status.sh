@@ -117,29 +117,20 @@ row "engine log::warn!/error! sites (expect 2)" "$engine_logs"
 frontend_logs=$(grep -rn "log::warn!\|log::error!" $frontend_dirs --include="*.rs" 2>/dev/null | wc -l | tr -d ' ')
 row "frontend log sites (not a defect)" "$frontend_logs"
 
+# Rules A and D, decided once by the audit's own script and reported here. Three counts on
+# one line, read before the first row that needs them.
+layering=$(python3 scripts/audit/layering.py 2>/dev/null | head -1)
+
 # Rule D (ARCHITECTURE.md 5.1): every document mutation is an `Operation`, and only
 # `fepdf-doc` interprets it. Section 7 called that "enforced by construction" while
 # nothing enforced it — the facade exposed each mutation twice, as a variant and as a
 # plain method, and eight frontend call sites used the method.
 #
-# The first version of this row grepped the four frontends for each facade mutator's
-# name. It was wrong twice over: it missed `reorder_pages_batch`, whose signature spans
-# two lines, and it counted `app.duplicate_page` in `fepdf-gui`, which is the GUI's own
-# method that happens to share a name. A check that greps call sites cannot tell those
-# apart.
-#
-# So the property moved into the type instead. The mutators are gone from the facade, and
-# what is counted is the facade itself: `&mut self` methods that are not `apply` and not
-# the four that configure saving rather than change the document. One file, no receivers
-# to disambiguate, and a frontend cannot bypass a vocabulary that is the only way in.
-# Adding a mutating method to `crates/fepdf/src/lib.rs` is what makes this fail.
-facade_mutators=$(awk '
-    /^    pub fn [a-z_]+/ { sig = $0; name = $0; sub(/^.*pub fn /, "", name); sub(/[(<].*$/, "", name); collecting = 1 }
-    collecting && !/^    pub fn / { sig = sig " " $0 }
-    collecting && /\{[[:space:]]*$/ { if (sig ~ /&mut self/) print name; collecting = 0 }
-' crates/fepdf/src/lib.rs | sort -u | grep -vx "apply" \
-    | grep -vE '^set_(vacuum|strip|password|system_fonts)$' | wc -l | tr -d ' ')
-row "Rule D: document mutators on the facade besides apply (expect 0)" "$facade_mutators"
+# The property lives in `scripts/audit/layering.py` with the two halves of Rule A, which
+# the audit gates on. It was measured here and gated nowhere until 2026-09-07, which is
+# how Rule A came to read 1 with the audit passing (ADR-0082).
+mutators=$(printf '%s' "$layering" | sed -n 's/.*mutators=\([0-9]*\).*/\1/p')
+row "Rule D: document mutators on the facade besides apply (expect 0)" "${mutators:-BROKEN}"
 
 # Over every engine crate, not the two this named. The label said "in the engine" while
 # the search said `fepdf` and `fepdf-doc`, so a stub anywhere else was invisible — the
@@ -391,7 +382,6 @@ row "Decision sites in the engine" "$decisions"
 # `FallbackFontType`, and the facade re-exports both.
 #
 # The row counts internal dependencies that are not `fepdf`, over the four frontends.
-layering=$(python3 scripts/audit/layering.py 2>/dev/null | head -1)
 frontend_deps=$(printf '%s' "$layering" | sed -n 's/.*declarations=\([0-9]*\).*/\1/p')
 row "Rule A: frontend deps that are neither the facade nor above it (expect 0)" \
     "${frontend_deps:-BROKEN}"

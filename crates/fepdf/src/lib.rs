@@ -306,9 +306,6 @@ pub enum IssueSeverity {
 /// High-level entry point for interacting with a PDF document.
 pub struct PdfDocument {
     inner: Document,
-    vacuum: bool,
-    strip: bool,
-    password: Option<String>,
 }
 
 impl PdfDocument {
@@ -319,7 +316,7 @@ impl PdfDocument {
         );
         let inner =
             Document::open(empty_pdf_bytes, &fepdf_model::ingest::IngestionOptions::default())?;
-        Ok(Self { inner, vacuum: false, strip: false, password: None })
+        Ok(Self { inner })
     }
 
     /// Opens a PDF document from a byte buffer with default ingestion options.
@@ -333,7 +330,7 @@ impl PdfDocument {
         options: &fepdf_model::ingest::IngestionOptions,
     ) -> PdfResult<Self> {
         let inner = Document::open(data, options)?;
-        Ok(Self { inner, vacuum: false, strip: false, password: None })
+        Ok(Self { inner })
     }
 
     /// Returns the internal document.
@@ -425,7 +422,7 @@ impl PdfDocument {
         options: &fepdf_model::ingest::IngestionOptions,
     ) -> PdfResult<Self> {
         let inner = Document::open_repair(data, options)?;
-        Ok(Self { inner, vacuum: false, strip: false, password: None })
+        Ok(Self { inner })
     }
 
     /// Merges multiple documents into a new one.
@@ -598,12 +595,7 @@ impl PdfDocument {
 
         let catalog_h =
             target_arena.alloc_object(Object::Dictionary(target_arena.alloc_dict(catalog_dict)));
-        Ok(Self {
-            inner: Document::new(target_arena, catalog_h, None),
-            vacuum: false,
-            strip: false,
-            password: None,
-        })
+        Ok(Self { inner: Document::new(target_arena, catalog_h, None) })
     }
 
     fn merge_link_outlines(
@@ -713,12 +705,7 @@ impl PdfDocument {
         let catalog_handle =
             target_arena.alloc_object(Object::Dictionary(target_arena.alloc_dict(catalog_dict)));
 
-        Ok(Self {
-            inner: Document::new(target_arena, catalog_handle, None),
-            vacuum: false,
-            strip: false,
-            password: None,
-        })
+        Ok(Self { inner: Document::new(target_arena, catalog_handle, None) })
     }
 
     /// Writes the document, returning what the write cost that the caller must know.
@@ -731,13 +718,7 @@ impl PdfDocument {
     /// does not assert on this, which is honest; a frontend ignoring it is visible in
     /// review because it had to write the discard.
     pub fn save_as_version(&self, output_path: &Path, version: &str) -> PdfResult<Vec<Decision>> {
-        let options = SaveOptions {
-            vacuum: self.vacuum,
-            strip: self.strip,
-            password: self.password.clone(),
-            ..SaveOptions::default()
-        };
-        self.save_with_options(output_path, version, &options)
+        self.save_with_options(output_path, version, &SaveOptions::default())
     }
 
     /// Saves the document with custom options.
@@ -1340,32 +1321,6 @@ impl PdfDocument {
             )),
             other => Ok(format!("{other:?}")),
         }
-    }
-
-    /// Controls whether unreachable objects are removed on save.
-    pub fn set_vacuum(&mut self, vacuum: bool) {
-        self.vacuum = vacuum;
-    }
-    /// Controls whether descriptive metadata is stripped on save.
-    pub fn set_strip(&mut self, strip: bool) {
-        self.strip = strip;
-    }
-    /// Sets the document open password.
-    pub fn set_password(&mut self, password: Option<String>) {
-        self.password = password;
-    }
-
-    /// Returns whether unreachable objects are removed on save.
-    pub fn vacuum(&self) -> bool {
-        self.vacuum
-    }
-    /// Returns whether descriptive metadata is stripped on save.
-    pub fn strip(&self) -> bool {
-        self.strip
-    }
-    /// Returns the configured document open password, if any.
-    pub fn password(&self) -> Option<&str> {
-        self.password.as_deref()
     }
 
     /// Returns the rotation angle (0, 90, 180, 270) of a specific page.

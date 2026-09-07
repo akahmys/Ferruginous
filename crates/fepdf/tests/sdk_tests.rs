@@ -4,7 +4,7 @@
 
 #![allow(clippy::float_cmp)]
 use bytes::Bytes;
-use fepdf::{Operation, PageSelection, PdfDocument, PdfStandard, Quarter, RotateMode};
+use fepdf::{Operation, PageSelection, PdfDocument, PdfStandard, Quarter, RotateMode, SaveOptions};
 use std::fmt::Write as _;
 
 /// Assembles indirect objects into a file, cross-reference and trailer included.
@@ -46,33 +46,29 @@ fn get_minimal_pdf() -> Bytes {
     )
 }
 
+/// **A save setting has to reach the file, and this asserted that a field held a bool.**
+///
+/// `test_document_save_settings_sync` set `vacuum`, `strip` and `password` through three
+/// facade setters, read them back through three getters, then saved and asserted `is_ok`.
+/// Its comment said "Verify SaveOptions serialization syncing" and nothing verified it.
+/// The three setters wrote to fields on `PdfDocument` that duplicated three fields of
+/// `SaveOptions`, and `save_with_options` — the way every frontend saves — never read
+/// them: `set_strip(true)` followed by a save with default options stripped nothing, in
+/// silence. They are gone, and this asks the question their name claimed.
 #[test]
-fn test_document_save_settings_sync() {
-    let data = get_minimal_pdf();
-    let mut doc = PdfDocument::open(data).unwrap();
+fn a_save_option_reaches_the_file_it_writes() {
+    let doc = PdfDocument::open(get_minimal_pdf()).expect("the fixture opens");
+    let path = std::env::temp_dir().join("fepdf_save_option_reaches.pdf");
 
-    // Test initial states
-    assert!(!doc.vacuum());
-    assert!(!doc.strip());
-    assert!(doc.password().is_none());
+    let options = SaveOptions { password: Some("secret".to_string()), ..SaveOptions::default() };
+    doc.save_with_options(&path, "2.0", &options).expect("the document is written");
 
-    // Modify states
-    doc.set_vacuum(true);
-    doc.set_strip(true);
-    doc.set_password(Some("secret".to_string()));
-
-    // Verify mutations
-    assert!(doc.vacuum());
-    assert!(doc.strip());
-    assert_eq!(doc.password(), Some("secret"));
-
-    // Verify SaveOptions serialization syncing
-    let file_path = std::env::temp_dir().join("fepdf_test_output.pdf");
-    let res = doc.save_as_version(&file_path, "2.0");
-    assert!(res.is_ok());
-
-    // Cleanup
-    let _ = std::fs::remove_file(file_path);
+    let written = std::fs::read(&path).expect("the output is there");
+    assert!(
+        written.windows(8).any(|w| w == b"/Encrypt"),
+        "a password in the options has to reach the trailer, or the file is not encrypted"
+    );
+    let _ = std::fs::remove_file(&path);
 }
 
 #[test]

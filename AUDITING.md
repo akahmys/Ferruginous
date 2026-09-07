@@ -94,7 +94,7 @@ before Rule 17 was retired. A derivation that reads comments is not a derivation
 | 13 | **No dependency that compiles C** | **9** |
 | 14 | **No unbounded recursion over a document's graph** | **6** |
 | 15 | **Document tense, links, and the ADR index** | **`AGENTS.md` 1, 2** |
-| 16 | **What stands above the facade, and what it declares** | **A** |
+| 16 | **What stands above the facade, what it declares, and what the facade lets in** | **A, D** |
 | 17 | `cargo fmt --all --check` | 19 |
 | 18 | `cargo deny check licenses` | 16 |
 | 19 | `betterleaks dir .` | 18 |

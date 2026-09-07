@@ -383,7 +383,7 @@ python3 scripts/audit/documents.py || ERROR=1
 # `status.sh` measured both of these and nothing gated on either, so a frontend gained a
 # dependency on another crate above the facade and this file said AUDIT PASSED anyway
 # (ADR-0082).
-echo "[Rule A] Checking what stands above the facade, and what it declares..."
+echo "[Rules A, D] Checking the facade's boundary in both directions..."
 python3 scripts/audit/layering.py || ERROR=1
 
 echo "[Rule 19] Checking formatting..."
