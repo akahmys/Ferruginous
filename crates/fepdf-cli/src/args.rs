@@ -536,6 +536,39 @@ pub enum EditSubcommands {
     },
 }
 
+/// What `publish sign` signs, and with what.
+///
+/// **One declaration rather than three.** The subcommand variant, `main.rs`'s
+/// destructuring of it and `handle_sign`'s parameter list each carried the same eight
+/// names, forwarded by position through two runs of same-typed values — four `PathBuf`
+/// and three `Option<String>` — where transposing a pair type-checks and signs with the
+/// key where the certificate belongs. Nothing compared the three lists.
+#[derive(clap::Args, Debug)]
+pub struct SignArgs {
+    /// Input PDF file
+    pub input: PathBuf,
+    /// Output signed PDF file
+    pub output: PathBuf,
+    /// DER-encoded X.509 certificate
+    #[arg(long)]
+    pub certificate: PathBuf,
+    /// DER-encoded PKCS#8 private key
+    #[arg(long)]
+    pub private_key: PathBuf,
+    /// Reason for signing
+    #[arg(long)]
+    pub reason: Option<String>,
+    /// Location of signing
+    #[arg(long)]
+    pub location: Option<String>,
+    /// Signer name, used only if the certificate states none
+    #[arg(long)]
+    pub name: Option<String>,
+    /// Page number carrying the signature field (default 1)
+    #[arg(long, default_value_t = 1)]
+    pub page: usize,
+}
+
 #[derive(Subcommand, Debug)]
 pub enum PublishSubcommands {
     /// Upgrade document to PDF 2.0 and modern standards (A-4, X-6, UA-2)
@@ -588,28 +621,9 @@ pub enum PublishSubcommands {
     /// there is anything to sign (ADR-0014). Both files must be DER — convert PEM with
     /// `openssl x509 -outform der` and `openssl pkcs8 -topk8 -nocrypt -outform der`.
     Sign {
-        /// Input PDF file
-        input: PathBuf,
-        /// Output signed PDF file
-        output: PathBuf,
-        /// DER-encoded X.509 certificate
-        #[arg(long)]
-        certificate: PathBuf,
-        /// DER-encoded PKCS#8 private key
-        #[arg(long)]
-        private_key: PathBuf,
-        /// Reason for signing
-        #[arg(long)]
-        reason: Option<String>,
-        /// Location of signing
-        #[arg(long)]
-        location: Option<String>,
-        /// Signer name, used only if the certificate states none
-        #[arg(long)]
-        name: Option<String>,
-        /// Page number carrying the signature field (default 1)
-        #[arg(long, default_value_t = 1)]
-        page: usize,
+        /// What to sign, with what
+        #[command(flatten)]
+        sign: SignArgs,
         /// Ingestion control options
         #[command(flatten)]
         ingest: IngestArgs,
@@ -686,6 +700,90 @@ pub enum DebugSubcommands {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **clap's own check, over the whole command tree, which nothing ran.**
+    ///
+    /// `SaveArgs::password` and `IngestArgs::password` both defaulted their clap id to
+    /// the field name, so every command flattening both — `publish upgrade` and
+    /// `publish sign` — panicked the moment it started. Only in debug builds, because
+    /// clap's duplicate check is a `debug_assert` and verification ran release. Those two
+    /// ids are explicit now; this runs the check over every command rather than over the
+    /// two that were caught, and it runs in `cargo test`, which is a debug build.
+    #[test]
+    fn every_command_survives_claps_own_checks() {
+        use clap::CommandFactory;
+        Cli::command().debug_assert();
+    }
+
+    /// **`sign` carries ten arguments and they are forwarded by position.**
+    ///
+    /// Four of them are `PathBuf` and three are `Option<String>`, so transposing a pair
+    /// inside either group type-checks: signing with the private key where the
+    /// certificate belongs is a compiling program. The list is written out three times —
+    /// here, destructured in `main.rs`, and again as `handle_sign`'s parameters — and
+    /// nothing compares the three. This pins which flag reaches which field.
+    #[test]
+    fn every_signing_flag_lands_in_its_own_field() {
+        let cli = Cli::try_parse_from([
+            "fepdf",
+            "publish",
+            "sign",
+            "in.pdf",
+            "out.pdf",
+            "--certificate",
+            "cert.der",
+            "--private-key",
+            "key.der",
+            "--reason",
+            "a reason",
+            "--location",
+            "a location",
+            "--name",
+            "a name",
+            "--page",
+            "3",
+        ])
+        .expect("the signing command line parses");
+
+        let Commands::Publish { sub: PublishSubcommands::Sign { sign, .. } } = cli.command else {
+            panic!("`publish sign` parsed as something else");
+        };
+        let SignArgs { input, output, certificate, private_key, reason, location, name, page } =
+            sign;
+
+        assert_eq!(input, PathBuf::from("in.pdf"));
+        assert_eq!(output, PathBuf::from("out.pdf"));
+        assert_eq!(certificate, PathBuf::from("cert.der"), "--certificate");
+        assert_eq!(private_key, PathBuf::from("key.der"), "--private-key");
+        assert_eq!(reason.as_deref(), Some("a reason"), "--reason");
+        assert_eq!(location.as_deref(), Some("a location"), "--location");
+        assert_eq!(name.as_deref(), Some("a name"), "--name");
+        assert_eq!(page, 3, "--page");
+    }
+
+    /// `--page` defaults to the first page, and the optional strings to nothing.
+    #[test]
+    fn signing_without_the_optional_flags_takes_the_documented_defaults() {
+        let cli = Cli::try_parse_from([
+            "fepdf",
+            "publish",
+            "sign",
+            "in.pdf",
+            "out.pdf",
+            "--certificate",
+            "cert.der",
+            "--private-key",
+            "key.der",
+        ])
+        .expect("the shortest signing command line parses");
+
+        let Commands::Publish { sub: PublishSubcommands::Sign { sign, .. } } = cli.command else {
+            panic!("`publish sign` parsed as something else");
+        };
+        let SignArgs { page, reason, location, name, .. } = sign;
+        assert_eq!(page, 1, "the default page");
+        assert!(reason.is_none() && location.is_none() && name.is_none());
+    }
 
     /// Covers the mapping from flags to options and nothing beyond it.
     ///

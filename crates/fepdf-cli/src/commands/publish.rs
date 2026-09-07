@@ -2,10 +2,8 @@ use anyhow::{Context, Result};
 use fepdf::{PdfDocument, PdfStandard};
 use std::path::PathBuf;
 
-use crate::args::{IngestArgs, SaveArgs};
+use crate::args::{IngestArgs, SaveArgs, SignArgs};
 use crate::formatters::{render_decisions_text, report_write_decisions};
-
-#[allow(clippy::too_many_arguments)]
 pub fn handle_upgrade(
     input: PathBuf,
     output: PathBuf,
@@ -89,19 +87,8 @@ pub fn handle_render(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
-pub fn handle_sign(
-    input: PathBuf,
-    output: PathBuf,
-    certificate: PathBuf,
-    private_key: PathBuf,
-    reason: Option<String>,
-    location: Option<String>,
-    name: Option<String>,
-    page: usize,
-    ingest: IngestArgs,
-    save: SaveArgs,
-) -> Result<()> {
+pub fn handle_sign(sign: SignArgs, ingest: IngestArgs, save: SaveArgs) -> Result<()> {
+    let SignArgs { input, output, certificate, private_key, reason, location, name, page } = sign;
     println!("fepdf sign: {} -> {}", input.display(), output.display());
     let data = std::fs::read(&input).with_context(|| "Failed to read input")?;
     let ingest_options: fepdf::IngestionOptions = ingest.into();

@@ -131,30 +131,8 @@ async fn main() -> Result<()> {
             PublishSubcommands::Render { input, output, page, cpu, ingest } => {
                 publish::handle_render(input, output, page, cpu, ingest)?;
             }
-            PublishSubcommands::Sign {
-                input,
-                output,
-                certificate,
-                private_key,
-                reason,
-                location,
-                name,
-                page,
-                ingest,
-                save,
-            } => {
-                publish::handle_sign(
-                    input,
-                    output,
-                    certificate,
-                    private_key,
-                    reason,
-                    location,
-                    name,
-                    page,
-                    ingest,
-                    save,
-                )?;
+            PublishSubcommands::Sign { sign, ingest, save } => {
+                publish::handle_sign(sign, ingest, save)?;
             }
             PublishSubcommands::VerifySignature { input, ingest } => {
                 publish::handle_verify_signature(input, ingest)?;
