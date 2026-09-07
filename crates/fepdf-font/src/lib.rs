@@ -42,9 +42,3 @@ pub enum FontError {
 
 /// Result type for font operations.
 pub type FontResult<T> = Result<T, FontError>;
-
-/// Backwards compatibility alias for PdfResult in font modules.
-pub type PdfResult<T> = FontResult<T>;
-
-/// Backwards compatibility alias for PdfError in font modules.
-pub type PdfError = FontError;

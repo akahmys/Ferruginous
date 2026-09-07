@@ -1,6 +1,6 @@
 //! CMap (Character Map) Parser (ISO 32000-2 Clause 9.7)
 
-use crate::PdfResult;
+use crate::FontResult;
 use std::collections::BTreeMap;
 
 use std::sync::Arc;
@@ -39,11 +39,11 @@ pub struct CMapRange<T> {
 
 impl CMap {
     /// Parses a CMap program.
-    pub fn parse(data: &[u8]) -> PdfResult<Self> {
+    pub fn parse(data: &[u8]) -> FontResult<Self> {
         Self::parse_with_depth(data, 0)
     }
 
-    fn parse_with_depth(data: &[u8], depth: usize) -> PdfResult<Self> {
+    fn parse_with_depth(data: &[u8], depth: usize) -> FontResult<Self> {
         if depth > 4 {
             return Ok(Self::default());
         }

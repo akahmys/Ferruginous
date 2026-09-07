@@ -1,5 +1,5 @@
 use crate::cmap::CMap;
-use crate::{PdfError, PdfResult};
+use crate::{FontError, FontResult};
 use std::collections::BTreeMap;
 
 /// Interface exposing font metadata needed for binary reconstruction.
@@ -147,7 +147,7 @@ impl FontReconstructor {
     ///
     /// This method performs surgical patching of font tables (hmtx, cmap) to align
     /// the physical font file with the metrics declared in the PDF document.
-    pub fn reconstruct(resource: &impl FontInfo, raw_data: &[u8]) -> PdfResult<ReconstructedFont> {
+    pub fn reconstruct(resource: &impl FontInfo, raw_data: &[u8]) -> FontResult<ReconstructedFont> {
         let format = FontFormat::detect_with_resource(raw_data, resource);
         let sig = if raw_data.len() >= 4 {
             format!("{:02x}{:02x}{:02x}{:02x}", raw_data[0], raw_data[1], raw_data[2], raw_data[3])
@@ -298,7 +298,7 @@ impl FontReconstructor {
     fn normalize_sfnt_format(
         data: &[u8],
         resource: &impl FontInfo,
-    ) -> PdfResult<ReconstructedFont> {
+    ) -> FontResult<ReconstructedFont> {
         let mut info = Self::inspect_cff(data).unwrap_or(CffInfo::empty());
 
         if info.sid_to_gid.is_none() {
@@ -354,7 +354,7 @@ impl FontReconstructor {
         format: FontFormat,
         data: &[u8],
         resource: &impl FontInfo,
-    ) -> PdfResult<ReconstructedFont> {
+    ) -> FontResult<ReconstructedFont> {
         match format {
             FontFormat::Sfnt => Self::normalize_sfnt_format(data, resource),
             FontFormat::Cff1 | FontFormat::Cff2 => {
@@ -390,7 +390,7 @@ impl FontReconstructor {
     fn transcode_type1_to_cff(
         data: &[u8],
         resource: &impl FontInfo,
-    ) -> PdfResult<ReconstructedFont> {
+    ) -> FontResult<ReconstructedFont> {
         let segments = Self::parse_pfb(data)?;
         log::info!(
             "[RECONSTRUCT] Type 1 segments extracted for {}: ASCII={} bytes, Binary={} bytes, Trailer={} bytes",
@@ -506,7 +506,12 @@ impl FontReconstructor {
         out.push(op);
     }
 
-    fn push_cff_dict_number(out: &mut Vec<u8>, val: i32) {
+    /// The one-and-two-byte integer forms a DICT and a charstring encode alike.
+    ///
+    /// Returns `false` when `val` falls outside them, which is where the two formats
+    /// part: a DICT continues with 28/`i16` or 29/`i32`, a charstring has only 28/`i16`
+    /// because its 255 introduces a 16.16 fixed-point value rather than an integer.
+    fn push_cff_small_number(out: &mut Vec<u8>, val: i32) -> bool {
         if (-107..=107).contains(&val) {
             out.push((val + 139) as u8);
         } else if (108..=1131).contains(&val) {
@@ -517,9 +522,19 @@ impl FontReconstructor {
             let v = -val - 108;
             out.push((v / 256 + 251) as u8);
             out.push((v % 256) as u8);
-        } else if (-32768..=32767).contains(&val) {
+        } else {
+            return false;
+        }
+        true
+    }
+
+    fn push_cff_dict_number(out: &mut Vec<u8>, val: i32) {
+        if Self::push_cff_small_number(out, val) {
+            return;
+        }
+        if let Ok(narrow) = i16::try_from(val) {
             out.push(28);
-            out.extend_from_slice(&(val as i16).to_be_bytes());
+            out.extend_from_slice(&narrow.to_be_bytes());
         } else {
             out.push(29);
             out.extend_from_slice(&val.to_be_bytes());
@@ -589,7 +604,7 @@ impl FontReconstructor {
         }
     }
 
-    fn parse_type1_data(ascii: &[u8], binary: &[u8]) -> PdfResult<Type1Data> {
+    fn parse_type1_data(ascii: &[u8], binary: &[u8]) -> FontResult<Type1Data> {
         let mut charstrings = BTreeMap::new();
         let mut subrs = Vec::new();
         let mut len_iv = 4;
@@ -824,21 +839,23 @@ impl FontReconstructor {
         }
     }
 
+    /// Writes `val` as a Type 2 charstring operand.
+    ///
+    /// **28 is the only integer form a Type 2 charstring has.** This wrote 255 followed
+    /// by a big-endian `i32`, which is Type 1\'s convention; in Type 2, 255 introduces a
+    /// 16.16 fixed-point value, so every operand outside ±1131 was read back at 1/65536
+    /// of what was meant. The 28 form was never emitted at all.
+    ///
+    /// An operand beyond `i16` is not representable in Type 2 by either form — 16.16
+    /// fixed holds an `i16` integer part — so it saturates. A Type 1 charstring can
+    /// state one; a glyph outline in any realistic em square does not.
     fn push_t2_number(out: &mut Vec<u8>, val: i32) {
-        if (-107..=107).contains(&val) {
-            out.push((val + 139) as u8);
-        } else if (108..=1131).contains(&val) {
-            let v = val - 108;
-            out.push((v / 256 + 247) as u8);
-            out.push((v % 256) as u8);
-        } else if (-1131..=-108).contains(&val) {
-            let v = -val - 108;
-            out.push((v / 256 + 251) as u8);
-            out.push((v % 256) as u8);
-        } else {
-            out.push(255);
-            out.extend_from_slice(&val.to_be_bytes());
+        if Self::push_cff_small_number(out, val) {
+            return;
         }
+        out.push(28);
+        let narrow = val.clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16;
+        out.extend_from_slice(&narrow.to_be_bytes());
     }
 
     fn decrypt_charstring(data: &[u8], len_iv: usize) -> Vec<u8> {
@@ -920,7 +937,7 @@ impl FontReconstructor {
         output
     }
 
-    fn parse_pfb(data: &[u8]) -> PdfResult<Type1Segments> {
+    fn parse_pfb(data: &[u8]) -> FontResult<Type1Segments> {
         let mut ascii = Vec::new();
         let mut binary = Vec::new();
         let mut trailer = Vec::new();
@@ -937,7 +954,7 @@ impl FontReconstructor {
             pos += 6;
 
             if pos + len > data.len() {
-                return Err(PdfError::Other("Malformed PFB: segment exceeds data length".into()));
+                return Err(FontError::Other("Malformed PFB: segment exceeds data length".into()));
             }
 
             match tag {
@@ -950,7 +967,7 @@ impl FontReconstructor {
         }
 
         if ascii.is_empty() && binary.is_empty() {
-            return Err(PdfError::Other("Malformed PFB: no valid segments found".into()));
+            return Err(FontError::Other("Malformed PFB: no valid segments found".into()));
         }
 
         Ok(Type1Segments { ascii, binary, trailer })
@@ -1034,7 +1051,7 @@ impl FontReconstructor {
         tag: [u8; 4],
         outline_data: &[u8],
         resource: &impl FontInfo,
-    ) -> PdfResult<ReconstructedFont> {
+    ) -> FontResult<ReconstructedFont> {
         let info = if tag == *b"CFF " || tag == *b"CFF2" {
             Self::inspect_cff(outline_data).unwrap_or(CffInfo::empty())
         } else {
@@ -1311,9 +1328,9 @@ impl FontReconstructor {
         Some(cmap)
     }
 
-    fn disassemble_sfnt(sfnt: &[u8]) -> PdfResult<DisassembledSfnt> {
+    fn disassemble_sfnt(sfnt: &[u8]) -> FontResult<DisassembledSfnt> {
         if sfnt.len() < 12 {
-            return Err(PdfError::Internal("SFNT too short".into()));
+            return Err(FontError::Internal("SFNT too short".into()));
         }
 
         let mut base_offset = 0;
@@ -1322,15 +1339,15 @@ impl FontReconstructor {
 
         if &magic == b"ttcf" {
             if sfnt.len() < 12 {
-                return Err(PdfError::Internal("TTC header too short".into()));
+                return Err(FontError::Internal("TTC header too short".into()));
             }
             let num_fonts = u32::from_be_bytes([sfnt[8], sfnt[9], sfnt[10], sfnt[11]]) as usize;
             if num_fonts == 0 {
-                return Err(PdfError::Internal("TTC contains no fonts".into()));
+                return Err(FontError::Internal("TTC contains no fonts".into()));
             }
             base_offset = u32::from_be_bytes([sfnt[12], sfnt[13], sfnt[14], sfnt[15]]) as usize;
             if base_offset + 12 > sfnt.len() {
-                return Err(PdfError::Internal("TTC offset out of bounds".into()));
+                return Err(FontError::Internal("TTC offset out of bounds".into()));
             }
             magic.copy_from_slice(&sfnt[base_offset..base_offset + 4]);
         }
@@ -1364,7 +1381,7 @@ impl FontReconstructor {
         Ok(DisassembledSfnt { magic, tables })
     }
 
-    fn assemble_sfnt(magic: &[u8; 4], tables: &[([u8; 4], Vec<u8>)]) -> PdfResult<Vec<u8>> {
+    fn assemble_sfnt(magic: &[u8; 4], tables: &[([u8; 4], Vec<u8>)]) -> FontResult<Vec<u8>> {
         let mut output = Vec::new();
         output.extend_from_slice(magic);
 
@@ -1494,7 +1511,7 @@ impl FontReconstructor {
     }
 
     /// Reads a CFF program's indices without fully decoding its charstrings.
-    pub fn inspect_cff(data: &[u8]) -> Result<CffInfo, Box<dyn std::error::Error>> {
+    pub fn inspect_cff(data: &[u8]) -> FontResult<CffInfo> {
         // RR-15 Limit: Dispatcher - parses and inspects raw CFF index tables and structures
         let cff_data = Self::extract_cff_stream(data)?;
         if cff_data.len() < 10 {
@@ -1558,7 +1575,7 @@ impl FontReconstructor {
         if info.is_cid { info.sid_to_gid.clone() } else { None }
     }
 
-    fn extract_cff_stream(data: &[u8]) -> Result<&[u8], Box<dyn std::error::Error>> {
+    fn extract_cff_stream(data: &[u8]) -> FontResult<&[u8]> {
         let is_sfnt =
             data.len() >= 4 && (data.starts_with(b"OTTO") || data.starts_with(&[0, 1, 0, 0]));
         if is_sfnt {
@@ -1579,7 +1596,7 @@ impl FontReconstructor {
                 // Converting it to a `Decision` would have put 918 false departures on
                 // clean files and made `is_conforming` false for all six — ADR-0008
                 // exactly. The error still carries the reason to whoever wants it.
-                Err("CFF table not found in SFNT container".into())
+                Err(FontError::Other("CFF table not found in SFNT container".into()))
             }
         } else {
             Ok(data)
@@ -2151,5 +2168,79 @@ mod index_bounds_tests {
         // And an item that is genuinely present still comes back.
         let good = [0x00, 0x01, 0x01, 0x01, 0x03, b'h', b'i'];
         assert_eq!(get_index_item(&good, 0, 0), Some(vec![b'h', b'i']));
+    }
+}
+
+#[cfg(test)]
+mod charstring_number_tests {
+    use super::FontReconstructor;
+
+    /// Decodes one operand the way a conforming reader does, and says which form it was.
+    ///
+    /// The arms are `read-fonts` 0.37.0 `postscript::dict::parse_int` and
+    /// `postscript::charstring`, which is the reader this workspace renders with: 28 is a
+    /// 16-bit integer in both a DICT and a charstring, 29 a 32-bit integer in a DICT
+    /// only, and 255 a 16.16 fixed-point value in a charstring and a real number in a
+    /// DICT. Neither reads 255 as an integer.
+    fn decode(bytes: &[u8]) -> (&'static str, f64) {
+        match bytes[0] {
+            32..=246 => ("small", f64::from(i32::from(bytes[0]) - 139)),
+            247..=250 => {
+                ("small", f64::from((i32::from(bytes[0]) - 247) * 256 + i32::from(bytes[1]) + 108))
+            }
+            251..=254 => {
+                ("small", f64::from(-(i32::from(bytes[0]) - 251) * 256 - i32::from(bytes[1]) - 108))
+            }
+            28 => ("int16", f64::from(i16::from_be_bytes([bytes[1], bytes[2]]))),
+            29 => {
+                ("int32", f64::from(i32::from_be_bytes([bytes[1], bytes[2], bytes[3], bytes[4]])))
+            }
+            255 => (
+                "fixed16.16",
+                f64::from(i32::from_be_bytes([bytes[1], bytes[2], bytes[3], bytes[4]])) / 65536.0,
+            ),
+            other => panic!("no operand form begins {other}"),
+        }
+    }
+
+    /// A Type 2 operand past ±1131 was written in Type 1's form and read at 1/65536.
+    ///
+    /// `push_t2_number` emitted 255 followed by a big-endian `i32`. In a Type 2
+    /// charstring 255 introduces a 16.16 fixed-point value, so a 2,000-unit coordinate
+    /// came back as 0.03. The 28 form — the only integer a Type 2 charstring has — was
+    /// never emitted for any value.
+    #[test]
+    fn a_type_2_operand_is_never_written_in_type_1s_form() {
+        for val in [1132, -1132, 2000, -2000, 16384, -16384, 32767, -32768] {
+            let mut out = Vec::new();
+            FontReconstructor::push_t2_number(&mut out, val);
+            let (form, got) = decode(&out);
+            assert_eq!(form, "int16", "{val} took the {form} form");
+            assert_eq!(got, f64::from(val), "{val} reads back as {got}");
+        }
+    }
+
+    /// The shared forms are still the shared forms, and still shared.
+    #[test]
+    fn the_small_forms_encode_alike_in_both_a_dict_and_a_charstring() {
+        for val in [0, 1, -1, 107, -107, 108, -108, 1131, -1131] {
+            let (mut dict, mut cs) = (Vec::new(), Vec::new());
+            FontReconstructor::push_cff_dict_number(&mut dict, val);
+            FontReconstructor::push_t2_number(&mut cs, val);
+            assert_eq!(dict, cs, "{val} is encoded differently by the two");
+            assert_eq!(decode(&dict), ("small", f64::from(val)), "{val}");
+        }
+    }
+
+    /// A DICT keeps both of its wide forms; only the charstring lost one.
+    #[test]
+    fn a_dict_operand_still_widens_to_32_bits() {
+        for (val, form) in [(1132, "int16"), (-32768, "int16"), (70000, "int32")] {
+            let mut out = Vec::new();
+            FontReconstructor::push_cff_dict_number(&mut out, val);
+            let (got_form, got) = decode(&out);
+            assert_eq!(got_form, form, "{val}");
+            assert_eq!(got, f64::from(val), "{val}");
+        }
     }
 }
