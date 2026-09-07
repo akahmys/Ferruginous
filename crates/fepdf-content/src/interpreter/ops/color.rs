@@ -8,6 +8,28 @@ use fepdf_model::{Handle, Object, Paint, PdfArena, PdfName, PdfResult};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+/// A shading's `/Extend` pair, defaulting to extending at both ends when it says nothing.
+///
+/// **Read identically in both shading branches** — 8.7.4.5.3's axial and 8.7.4.5.4's
+/// radial — fourteen lines apiece, differing in nothing.
+fn read_extend(
+    arena: &fepdf_model::PdfArena,
+    dict: &std::collections::BTreeMap<Handle<PdfName>, fepdf_model::Object>,
+) -> [bool; 2] {
+    let extend_key = arena.intern_name(PdfName::new("Extend"));
+    if let Some(fepdf_model::Object::Array(ah)) = dict.get(&extend_key).map(|o| o.resolve(arena))
+        && let Some(arr) = arena.get_array(ah)
+        && arr.len() >= 2
+    {
+        [
+            arr[0].resolve(arena).as_bool().unwrap_or(true),
+            arr[1].resolve(arena).as_bool().unwrap_or(true),
+        ]
+    } else {
+        [true, true]
+    }
+}
+
 impl Interpreter<'_> {
     pub(crate) fn handle_color_operator(&mut self, op: &str) -> PdfResult<()> {
         match op {
@@ -447,19 +469,7 @@ pub(crate) fn parse_shading_object(
                 [0.0, 0.0, 1.0, 0.0]
             };
 
-            let extend_key = arena.intern_name(PdfName::new("Extend"));
-            let extend = if let Some(fepdf_model::Object::Array(ah)) =
-                dict.get(&extend_key).map(|o| o.resolve(arena))
-                && let Some(arr) = arena.get_array(ah)
-                && arr.len() >= 2
-            {
-                [
-                    arr[0].resolve(arena).as_bool().unwrap_or(true),
-                    arr[1].resolve(arena).as_bool().unwrap_or(true),
-                ]
-            } else {
-                [true, true]
-            };
+            let extend = read_extend(arena, &dict);
 
             let stops = shading_stops(&dict, arena);
 
@@ -489,19 +499,7 @@ pub(crate) fn parse_shading_object(
                 [0.0, 0.0, 0.0, 1.0, 0.0, 1.0]
             };
 
-            let extend_key = arena.intern_name(PdfName::new("Extend"));
-            let extend = if let Some(fepdf_model::Object::Array(ah)) =
-                dict.get(&extend_key).map(|o| o.resolve(arena))
-                && let Some(arr) = arena.get_array(ah)
-                && arr.len() >= 2
-            {
-                [
-                    arr[0].resolve(arena).as_bool().unwrap_or(true),
-                    arr[1].resolve(arena).as_bool().unwrap_or(true),
-                ]
-            } else {
-                [true, true]
-            };
+            let extend = read_extend(arena, &dict);
 
             let stops = shading_stops(&dict, arena);
 

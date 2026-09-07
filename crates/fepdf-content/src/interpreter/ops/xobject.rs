@@ -134,17 +134,9 @@ impl Interpreter<'_> {
         ));
     }
 
+    /// Concatenates a form's `/Matrix` onto the CTM, and tells the backend.
     #[allow(clippy::many_single_char_names)]
-    pub(crate) fn execute_form_commands(
-        &mut self,
-        dict: &BTreeMap<Handle<PdfName>, Object>,
-        cmds: &[Command],
-    ) -> PdfResult<()> {
-        // 1. Save state
-        self.state_stack.push(self.state.clone());
-        self.backend.push_state();
-
-        // 2. Apply Matrix
+    fn apply_form_matrix(&mut self, dict: &BTreeMap<Handle<PdfName>, Object>) {
         let matrix_key = self.doc.arena().intern_name(PdfName::new("Matrix"));
         if let Some(Object::Array(h)) = dict.get(&matrix_key).map(|o| o.resolve(self.doc.arena()))
             && let Some(arr) = self.doc.arena().get_array(h)
@@ -160,8 +152,10 @@ impl Interpreter<'_> {
             self.state.ctm = self.state.ctm.concat(&m);
             self.backend.transform(m.as_affine());
         }
+    }
 
-        // 2.5 Apply BBox clipping
+    /// Clips a form's content to its `/BBox` (ISO 32000-2 8.10.1).
+    fn clip_to_form_bbox(&mut self, dict: &BTreeMap<Handle<PdfName>, Object>) {
         let bbox_key = self.doc.arena().intern_name(PdfName::new("BBox"));
         if let Some(Object::Array(h)) = dict.get(&bbox_key).map(|o| o.resolve(self.doc.arena()))
             && let Some(arr) = self.doc.arena().get_array(h)
@@ -182,6 +176,32 @@ impl Interpreter<'_> {
             self.backend.push_clip(&path, fepdf_model::graphics::WindingRule::NonZero);
             self.state.clip_count += 1;
         }
+    }
+
+    /// Runs `body` inside the frame 8.10.1 gives a form: the state saved, `/Matrix`
+    /// concatenated, `/BBox` clipped, `/Resources` pushed, and each of those unwound after.
+    ///
+    /// **The frame stood twice** — once around parsed `Command`s and once around raw bytes,
+    /// 66 of its 70 lines identical in both. Which one ran was decided by whether ingestion
+    /// had refined the form's stream, which is a property of the read and not of the form,
+    /// so one document met a different implementation depending on
+    /// `IngestionOptions::active_refinement` and nothing said the two agreed. `fepdf`'s
+    /// `tests/form_xobject_test.rs` says it: four tests hold what this frame does, and a
+    /// fifth renders one document down both paths and compares the calls the backend got.
+    ///
+    /// An error from `body` propagates without unwinding, as it did in both copies.
+    fn in_form_frame(
+        &mut self,
+        dict: &BTreeMap<Handle<PdfName>, Object>,
+        body: impl FnOnce(&mut Self) -> PdfResult<()>,
+    ) -> PdfResult<()> {
+        // 1. Save state
+        self.state_stack.push(self.state.clone());
+        self.backend.push_state();
+
+        self.apply_form_matrix(dict);
+
+        self.clip_to_form_bbox(dict);
 
         // 3. Setup Resources
         let mut pushed = false;
@@ -193,7 +213,7 @@ impl Interpreter<'_> {
         }
 
         // 4. Recursive Execute
-        self.in_nested_content(|me| me.execute_commands(cmds))?;
+        self.in_nested_content(body)?;
 
         // 5. Cleanup
         if pushed {
@@ -214,85 +234,21 @@ impl Interpreter<'_> {
         Ok(())
     }
 
-    #[allow(clippy::many_single_char_names)]
+    pub(crate) fn execute_form_commands(
+        &mut self,
+        dict: &BTreeMap<Handle<PdfName>, Object>,
+        cmds: &[Command],
+    ) -> PdfResult<()> {
+        self.in_form_frame(dict, |me| me.execute_commands(cmds))
+    }
+
     pub(crate) fn render_form_xobject(
         &mut self,
         dict: &BTreeMap<Handle<PdfName>, Object>,
         data: &[u8],
     ) -> PdfResult<()> {
         let decoded = self.doc.arena().process_filters(data, dict)?;
-        // 1. Save state
-        self.state_stack.push(self.state.clone());
-        self.backend.push_state();
-
-        // 2. Apply Matrix
-        let matrix_key = self.doc.arena().intern_name(PdfName::new("Matrix"));
-        if let Some(Object::Array(h)) = dict.get(&matrix_key).map(|o| o.resolve(self.doc.arena()))
-            && let Some(arr) = self.doc.arena().get_array(h)
-            && arr.len() == 6
-        {
-            let a = arr[0].resolve(self.doc.arena()).as_f64().unwrap_or(0.0);
-            let b = arr[1].resolve(self.doc.arena()).as_f64().unwrap_or(0.0);
-            let c = arr[2].resolve(self.doc.arena()).as_f64().unwrap_or(0.0);
-            let d = arr[3].resolve(self.doc.arena()).as_f64().unwrap_or(0.0);
-            let e = arr[4].resolve(self.doc.arena()).as_f64().unwrap_or(0.0);
-            let f = arr[5].resolve(self.doc.arena()).as_f64().unwrap_or(0.0);
-            let m = fepdf_model::graphics::Matrix::new(a, b, c, d, e, f);
-            self.state.ctm = self.state.ctm.concat(&m);
-            self.backend.transform(m.as_affine());
-        }
-
-        // 2.5 Apply BBox clipping (ISO 32000-2 8.10.1)
-        let bbox_key = self.doc.arena().intern_name(PdfName::new("BBox"));
-        if let Some(Object::Array(h)) = dict.get(&bbox_key).map(|o| o.resolve(self.doc.arena()))
-            && let Some(arr) = self.doc.arena().get_array(h)
-            && arr.len() == 4
-        {
-            let x1 = arr[0].resolve(self.doc.arena()).as_f64().unwrap_or(0.0);
-            let y1 = arr[1].resolve(self.doc.arena()).as_f64().unwrap_or(0.0);
-            let x2 = arr[2].resolve(self.doc.arena()).as_f64().unwrap_or(0.0);
-            let y2 = arr[3].resolve(self.doc.arena()).as_f64().unwrap_or(0.0);
-
-            let mut path = kurbo::BezPath::new();
-            path.move_to((x1, y1));
-            path.line_to((x2, y1));
-            path.line_to((x2, y2));
-            path.line_to((x1, y2));
-            path.close_path();
-
-            self.backend.push_clip(&path, fepdf_model::graphics::WindingRule::NonZero);
-            self.state.clip_count += 1;
-        }
-
-        // 3. Setup Resources
-        let mut pushed = false;
-        let res_key = self.doc.arena().intern_name(PdfName::new("Resources"));
-        if let Some(Object::Dictionary(h)) = dict.get(&res_key).map(|o| o.resolve(self.doc.arena()))
-        {
-            self.resource_stack.push(h);
-            pushed = true;
-        }
-
-        // 4. Recursive Execute
-        self.in_nested_content(|me| me.execute_raw(&decoded))?;
-
-        // 5. Cleanup
-        if pushed {
-            self.resource_stack.pop();
-        }
-        let current_clips = self.state.clip_count;
-        if let Some(old) = self.state_stack.pop() {
-            let target_clips = old.clip_count;
-            if current_clips > target_clips {
-                for _ in 0..(current_clips - target_clips) {
-                    self.backend.pop_clip();
-                }
-            }
-            self.state = old;
-            self.backend.pop_state();
-        }
-
-        Ok(())
+        self.in_form_frame(dict, move |me| me.execute_raw(&decoded))
     }
 
     /// Records an image the engine gave up on, with the filter that stopped it.
