@@ -1,78 +1,13 @@
 //! Choice fields (/FT /Ch) reading, value setting, and appearance generation (ISO 32000-2 12.7.4.4).
 
 use fepdf::{ChoiceOption, FormFieldSpec, FormValue, InteractiveReport, PdfDocument};
-use fepdf_content::{
-    BlendMode, Color, FallbackFontType, Paint, PixelFormat, RenderBackend, SMaskData, ShadingSpec,
-    StrokeStyle, TextGlyph, TextState, WindingRule,
-};
 use fepdf_doc::operation::Operation;
-use fepdf_model::graphics::TextRenderingMode;
-use kurbo::{Affine, BezPath};
-use std::sync::Arc;
+use kurbo::Affine;
 
 mod common;
 use common::assemble;
-
-#[derive(Default)]
-struct Drawn {
-    text: String,
-}
-
-impl RenderBackend for Drawn {
-    fn show_text(
-        &mut self,
-        glyphs: &[TextGlyph],
-        _size: f64,
-        _transform: Affine,
-        _state: TextState,
-        _op_index: usize,
-    ) {
-        for glyph in glyphs {
-            self.text.push_str(&glyph.unicode);
-        }
-    }
-    fn transform(&mut self, _transform: Affine) {}
-    fn set_transform(&mut self, _transform: Affine) {}
-    fn push_state(&mut self) {}
-    fn pop_state(&mut self) {}
-    fn fill_path(&mut self, _path: &BezPath, _color: &Color, _rule: WindingRule) {}
-    fn stroke_path(&mut self, _path: &BezPath, _color: &Color, _style: &StrokeStyle) {}
-    fn push_clip(&mut self, _path: &BezPath, _rule: WindingRule) {}
-    fn pop_clip(&mut self) {}
-    fn set_fill_alpha(&mut self, _alpha: f64) {}
-    fn set_stroke_alpha(&mut self, _alpha: f64) {}
-    fn set_fill_color(&mut self, _color: Color) {}
-    fn set_stroke_color(&mut self, _color: Color) {}
-    fn set_fill_paint(&mut self, _paint: &Paint) {}
-    fn set_stroke_paint(&mut self, _paint: &Paint) {}
-    fn paint_shading(&mut self, _shading: &ShadingSpec) {}
-    fn set_blend_mode(&mut self, _mode: BlendMode) {}
-    fn draw_image(
-        &mut self,
-        _image: &[u8],
-        _width: u32,
-        _height: u32,
-        _format: PixelFormat,
-        _smask: Option<SMaskData>,
-    ) {
-    }
-    #[allow(clippy::too_many_arguments)]
-    fn define_font(
-        &mut self,
-        _name: &str,
-        _base_name: Option<&str>,
-        _data: Option<Arc<Vec<u8>>>,
-        _index: Option<usize>,
-        _cid_to_gid_map: Option<std::collections::BTreeMap<u32, u32>>,
-        _fallback_type: FallbackFontType,
-        _is_cid_keyed: bool,
-    ) {
-    }
-    fn set_font(&mut self, _name: &str) {}
-    fn set_text_render_mode(&mut self, _mode: TextRenderingMode) {}
-    fn set_char_spacing(&mut self, _spacing: f64) {}
-    fn set_word_spacing(&mut self, _spacing: f64) {}
-}
+pub mod recorder;
+use recorder::Recorder;
 
 fn choice_form(field_extra: &str) -> Vec<u8> {
     let bodies = [
@@ -228,9 +163,9 @@ fn test_set_choice_field_value_and_appearance() {
     assert_eq!(field.value.as_deref(), Some("Large"));
     assert_eq!(field.selected_indices, vec![2]);
 
-    let mut drawn = Drawn::default();
+    let mut drawn = Recorder::new();
     doc.render_page(0, &mut drawn, Affine::IDENTITY).expect("renders");
-    assert_eq!(drawn.text, "Large");
+    assert_eq!(drawn.text(), "Large");
 }
 
 #[test]
@@ -257,7 +192,7 @@ fn test_set_choice_field_paired_display_appearance() {
     let field = &report.form.terminal[0];
     assert_eq!(field.selected_indices, vec![1]);
 
-    let mut drawn = Drawn::default();
+    let mut drawn = Recorder::new();
     doc.render_page(0, &mut drawn, Affine::IDENTITY).expect("renders");
-    assert_eq!(drawn.text, "Japan");
+    assert_eq!(drawn.text(), "Japan");
 }

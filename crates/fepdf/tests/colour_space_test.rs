@@ -13,28 +13,18 @@
 
 use fepdf::PdfDocument;
 
+mod common;
+use common::assemble;
+
 fn page_drawing(content: &str) -> PdfDocument {
-    use std::fmt::Write as _;
     let objects = [
         "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
         "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
         "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R >>".to_string(),
         format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()),
     ];
-    let mut out = String::from("%PDF-2.0\n");
-    let mut offsets = Vec::new();
-    for (index, body) in objects.iter().enumerate() {
-        offsets.push(out.len());
-        let _ = write!(out, "{} 0 obj\n{body}\nendobj\n", index + 1);
-    }
-    let table_at = out.len();
-    let size = objects.len() + 1;
-    let _ = write!(out, "xref\n0 {size}\n0000000000 65535 f \n");
-    for offset in &offsets {
-        let _ = writeln!(out, "{offset:010} 00000 n ");
-    }
-    let _ = write!(out, "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{table_at}\n%%EOF\n");
-    PdfDocument::open(bytes::Bytes::from(out.into_bytes())).expect("the fixture opens")
+    PdfDocument::open(bytes::Bytes::from(assemble(&objects.map(String::from))))
+        .expect("the fixture opens")
 }
 
 /// Interpreting the page is what raises the decision, so the page is interpreted.

@@ -19,7 +19,9 @@
 //! nothing skips.
 
 use fepdf::{IngestionOptions, PdfDocument, SaveOptions};
-use std::fmt::Write as _;
+
+mod common;
+use common::assemble;
 
 /// A one-page document with text, assembled here so no corpus is needed.
 fn fixture() -> bytes::Bytes {
@@ -35,20 +37,7 @@ fn fixture() -> bytes::Bytes {
             .to_string(),
     ];
 
-    let mut out = String::from("%PDF-2.0\n");
-    let mut offsets = Vec::new();
-    for (index, body) in objects.iter().enumerate() {
-        offsets.push(out.len());
-        let _ = write!(out, "{} 0 obj\n{body}\nendobj\n", index + 1);
-    }
-    let table_at = out.len();
-    let size = objects.len() + 1;
-    let _ = write!(out, "xref\n0 {size}\n0000000000 65535 f \n");
-    for offset in &offsets {
-        let _ = writeln!(out, "{offset:010} 00000 n ");
-    }
-    let _ = write!(out, "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{table_at}\n%%EOF\n");
-    bytes::Bytes::from(out.into_bytes())
+    bytes::Bytes::from(assemble(&objects))
 }
 
 /// The fixture, or a file this engine wrote, opened with an optional password.

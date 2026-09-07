@@ -17,77 +17,11 @@
 //! is both faster and more precise, and it runs where there is no GPU at all.
 
 use fepdf::{IngestionOptions, PdfDocument};
-use fepdf_content::{
-    BlendMode, Color, FallbackFontType, Paint, PixelFormat, RenderBackend, SMaskData, ShadingSpec,
-    StrokeStyle, TextGlyph, TextState, WindingRule,
-};
-use fepdf_model::graphics::TextRenderingMode;
-use kurbo::{Affine, BezPath};
-use std::sync::Arc;
+use fepdf_content::PixelFormat;
+use kurbo::Affine;
 
-/// The image the page drew, as the backend was given it.
-#[derive(Default)]
-struct Drawn {
-    samples: Vec<u8>,
-    size: Option<(u32, u32)>,
-    format: Option<PixelFormat>,
-}
-
-impl RenderBackend for Drawn {
-    fn draw_image(
-        &mut self,
-        image: &[u8],
-        width: u32,
-        height: u32,
-        format: PixelFormat,
-        _smask: Option<SMaskData>,
-    ) {
-        self.samples = image.to_vec();
-        self.size = Some((width, height));
-        self.format = Some(format);
-    }
-    fn transform(&mut self, _transform: Affine) {}
-    fn set_transform(&mut self, _transform: Affine) {}
-    fn push_state(&mut self) {}
-    fn pop_state(&mut self) {}
-    fn fill_path(&mut self, _path: &BezPath, _color: &Color, _rule: WindingRule) {}
-    fn stroke_path(&mut self, _path: &BezPath, _color: &Color, _style: &StrokeStyle) {}
-    fn push_clip(&mut self, _path: &BezPath, _rule: WindingRule) {}
-    fn pop_clip(&mut self) {}
-    fn set_fill_alpha(&mut self, _alpha: f64) {}
-    fn set_stroke_alpha(&mut self, _alpha: f64) {}
-    fn set_fill_color(&mut self, _color: Color) {}
-    fn set_stroke_color(&mut self, _color: Color) {}
-    fn set_fill_paint(&mut self, _paint: &Paint) {}
-    fn set_stroke_paint(&mut self, _paint: &Paint) {}
-    fn paint_shading(&mut self, _shading: &ShadingSpec) {}
-    fn set_blend_mode(&mut self, _mode: BlendMode) {}
-    fn show_text(
-        &mut self,
-        _glyphs: &[TextGlyph],
-        _size: f64,
-        _transform: Affine,
-        _state: TextState,
-        _op_index: usize,
-    ) {
-    }
-    #[allow(clippy::too_many_arguments)]
-    fn define_font(
-        &mut self,
-        _name: &str,
-        _base_name: Option<&str>,
-        _data: Option<Arc<Vec<u8>>>,
-        _index: Option<usize>,
-        _cid_to_gid_map: Option<std::collections::BTreeMap<u32, u32>>,
-        _fallback_type: FallbackFontType,
-        _is_cid_keyed: bool,
-    ) {
-    }
-    fn set_font(&mut self, _name: &str) {}
-    fn set_text_render_mode(&mut self, _mode: TextRenderingMode) {}
-    fn set_char_spacing(&mut self, _spacing: f64) {}
-    fn set_word_spacing(&mut self, _spacing: f64) {}
-}
+pub mod recorder;
+use recorder::Recorder;
 
 /// A page exactly the size of the image it draws, with `entries` in the image dictionary.
 fn page_with_image(width: u32, height: u32, entries: &str, data: &[u8]) -> Vec<u8> {
@@ -141,10 +75,10 @@ fn page_with_image(width: u32, height: u32, entries: &str, data: &[u8]) -> Vec<u
 }
 
 /// Interprets the page and reports what the backend got, with the decisions taken.
-fn draw(file: Vec<u8>) -> (Drawn, Vec<String>) {
+fn draw(file: Vec<u8>) -> (Recorder, Vec<String>) {
     let doc = PdfDocument::open_with_options(file.into(), &IngestionOptions::default())
         .expect("the fixture opens");
-    let mut drawn = Drawn::default();
+    let mut drawn = Recorder::new();
     doc.render_page(0, &mut drawn, Affine::IDENTITY).expect("the page interprets");
     let decisions = doc.decisions().iter().map(|d| format!("{} {}", d.clause, d.found)).collect();
     (drawn, decisions)
@@ -177,16 +111,17 @@ fn a_one_bit_gray_image_reaches_the_backend_one_byte_per_pixel() {
         "/ColorSpace /DeviceGray /BitsPerComponent 1",
         &one_bit_gray(64, 32),
     ));
-    assert_eq!(drawn.size, Some((64, 32)));
-    assert_eq!(drawn.format, Some(PixelFormat::Gray8));
+    let image = drawn.last_image().expect("an image reached the backend");
+    assert_eq!(image.size, (64, 32));
+    assert_eq!(image.format, PixelFormat::Gray8);
     assert_eq!(
-        drawn.samples.len(),
+        image.samples.len(),
         64 * 32,
         "the samples are still packed eight to a byte, which is the 8x shortfall that \
          killed the process"
     );
-    assert_eq!(drawn.samples[0], 0, "the top-left quarter is black");
-    assert_eq!(drawn.samples[63], 255, "the top-right is white");
+    assert_eq!(image.samples[0], 0, "the top-left quarter is black");
+    assert_eq!(image.samples[63], 255, "the top-right is white");
     assert!(decisions.is_empty(), "expanding conforming samples is not a departure: {decisions:?}");
 }
 
@@ -200,7 +135,8 @@ fn the_same_holds_at_the_size_the_fixture_was_enlarged_to() {
         "/ColorSpace /DeviceGray /BitsPerComponent 1",
         &one_bit_gray(256, 128),
     ));
-    assert_eq!(drawn.samples.len(), 256 * 128);
+    let image = drawn.last_image().expect("an image reached the backend");
+    assert_eq!(image.samples.len(), 256 * 128);
 }
 
 /// Four bits per component is the other sub-byte depth a scan uses, and a width that is
@@ -213,9 +149,10 @@ fn a_sub_byte_depth_that_does_not_divide_the_width_still_expands() {
     let data = [0x0F, 0x0F, 0x00, 0x0F, 0x0F, 0x00];
     let (drawn, _) =
         draw(page_with_image(width, height, "/ColorSpace /DeviceGray /BitsPerComponent 4", &data));
-    assert_eq!(drawn.samples.len(), (width * height) as usize, "row padding was read as samples");
-    assert_eq!(drawn.samples[0], 0, "the first sample is 0 of 15");
-    assert_eq!(drawn.samples[1], 255, "the second is 15 of 15");
+    let image = drawn.last_image().expect("an image reached the backend");
+    assert_eq!(image.samples.len(), (width * height) as usize, "row padding was read as samples");
+    assert_eq!(image.samples[0], 0, "the first sample is 0 of 15");
+    assert_eq!(image.samples[1], 255, "the second is 15 of 15");
 }
 
 /// The second guard, independent of the first. An image whose data is short for what its
@@ -225,7 +162,11 @@ fn a_sub_byte_depth_that_does_not_divide_the_width_still_expands() {
 fn an_image_shorter_than_its_dictionary_describes_is_skipped_and_recorded() {
     let (drawn, decisions) =
         draw(page_with_image(64, 32, "/ColorSpace /DeviceGray /BitsPerComponent 8", &[0_u8; 100]));
-    assert!(drawn.size.is_none(), "a short image reached the backend: {:?}", drawn.samples.len());
+    assert!(
+        drawn.last_image().is_none(),
+        "a short image reached the backend: {:?}",
+        drawn.count("image")
+    );
     assert!(
         decisions.iter().any(|d| d.starts_with("8.9.5.1") && d.contains("2048")),
         "the shortfall was not reported: {decisions:?}"

@@ -11,73 +11,12 @@
 //! about files this project did not write.
 
 use fepdf::{IngestionOptions, PdfDocument};
-use fepdf_content::{
-    BlendMode, Color, FallbackFontType, Paint, PixelFormat, RenderBackend, SMaskData, ShadingSpec,
-    StrokeStyle, TextGlyph, TextState, WindingRule,
-};
 use fepdf_doc::operation::{DecorationPosition, Operation, PageSelection};
 use fepdf_model::document::extensions::{LayerGroup, OptionalContentProperties, VisibilityState};
-use fepdf_model::graphics::TextRenderingMode;
-use kurbo::{Affine, BezPath};
-use std::sync::Arc;
+use kurbo::Affine;
 
-/// Counts the glyph runs that reached the page.
-#[derive(Default)]
-struct Runs(usize);
-
-impl RenderBackend for Runs {
-    fn show_text(
-        &mut self,
-        _glyphs: &[TextGlyph],
-        _size: f64,
-        _transform: Affine,
-        _state: TextState,
-        _op_index: usize,
-    ) {
-        self.0 += 1;
-    }
-    fn transform(&mut self, _transform: Affine) {}
-    fn set_transform(&mut self, _transform: Affine) {}
-    fn push_state(&mut self) {}
-    fn pop_state(&mut self) {}
-    fn fill_path(&mut self, _path: &BezPath, _color: &Color, _rule: WindingRule) {}
-    fn stroke_path(&mut self, _path: &BezPath, _color: &Color, _style: &StrokeStyle) {}
-    fn push_clip(&mut self, _path: &BezPath, _rule: WindingRule) {}
-    fn pop_clip(&mut self) {}
-    fn set_fill_alpha(&mut self, _alpha: f64) {}
-    fn set_stroke_alpha(&mut self, _alpha: f64) {}
-    fn set_fill_color(&mut self, _color: Color) {}
-    fn set_stroke_color(&mut self, _color: Color) {}
-    fn set_fill_paint(&mut self, _paint: &Paint) {}
-    fn set_stroke_paint(&mut self, _paint: &Paint) {}
-    fn paint_shading(&mut self, _shading: &ShadingSpec) {}
-    fn set_blend_mode(&mut self, _mode: BlendMode) {}
-    fn draw_image(
-        &mut self,
-        _image: &[u8],
-        _width: u32,
-        _height: u32,
-        _format: PixelFormat,
-        _smask: Option<SMaskData>,
-    ) {
-    }
-    #[allow(clippy::too_many_arguments)]
-    fn define_font(
-        &mut self,
-        _name: &str,
-        _base_name: Option<&str>,
-        _data: Option<Arc<Vec<u8>>>,
-        _index: Option<usize>,
-        _cid_to_gid_map: Option<std::collections::BTreeMap<u32, u32>>,
-        _fallback_type: FallbackFontType,
-        _is_cid_keyed: bool,
-    ) {
-    }
-    fn set_font(&mut self, _name: &str) {}
-    fn set_text_render_mode(&mut self, _mode: TextRenderingMode) {}
-    fn set_char_spacing(&mut self, _spacing: f64) {}
-    fn set_word_spacing(&mut self, _spacing: f64) {}
-}
+pub mod recorder;
+use recorder::Recorder;
 
 /// Writes a one-page document carrying one layer in `state`, with a decoration in it,
 /// and hands back the bytes as they were written to disk.
@@ -108,9 +47,9 @@ fn document_with_a_decorated_layer(state: VisibilityState) -> Vec<u8> {
 fn runs_drawn(bytes: Vec<u8>) -> usize {
     let doc = PdfDocument::open_with_options(bytes.into(), &IngestionOptions::default())
         .expect("the written document opens");
-    let mut runs = Runs::default();
+    let mut runs = Recorder::new();
     doc.render_page(0, &mut runs, Affine::IDENTITY).expect("the page interprets");
-    runs.0
+    runs.count("text")
 }
 
 #[test]

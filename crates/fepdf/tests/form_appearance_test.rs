@@ -9,79 +9,15 @@
 //! the page is drawn, and what decides is whether the text reached the backend.
 
 use fepdf::{IngestionOptions, PdfDocument};
-use fepdf_content::{
-    BlendMode, Color, FallbackFontType, Paint, PixelFormat, RenderBackend, SMaskData, ShadingSpec,
-    StrokeStyle, TextGlyph, TextState, WindingRule,
-};
 use fepdf_doc::operation::Operation;
 use fepdf_model::document::extensions::{FormFieldSpec, FormValue};
-use fepdf_model::graphics::TextRenderingMode;
-use kurbo::{Affine, BezPath};
-use std::sync::Arc;
+use kurbo::Affine;
 
-/// The text the page drew, and where each run started.
-#[derive(Default)]
-struct Drawn {
-    text: String,
-    first_x: Option<f64>,
-}
+pub mod recorder;
+use recorder::{Event, Recorder};
 
-impl RenderBackend for Drawn {
-    fn show_text(
-        &mut self,
-        glyphs: &[TextGlyph],
-        _size: f64,
-        transform: Affine,
-        _state: TextState,
-        _op_index: usize,
-    ) {
-        for glyph in glyphs {
-            self.text.push_str(&glyph.unicode);
-        }
-        self.first_x.get_or_insert(transform.as_coeffs()[4]);
-    }
-    fn transform(&mut self, _transform: Affine) {}
-    fn set_transform(&mut self, _transform: Affine) {}
-    fn push_state(&mut self) {}
-    fn pop_state(&mut self) {}
-    fn fill_path(&mut self, _path: &BezPath, _color: &Color, _rule: WindingRule) {}
-    fn stroke_path(&mut self, _path: &BezPath, _color: &Color, _style: &StrokeStyle) {}
-    fn push_clip(&mut self, _path: &BezPath, _rule: WindingRule) {}
-    fn pop_clip(&mut self) {}
-    fn set_fill_alpha(&mut self, _alpha: f64) {}
-    fn set_stroke_alpha(&mut self, _alpha: f64) {}
-    fn set_fill_color(&mut self, _color: Color) {}
-    fn set_stroke_color(&mut self, _color: Color) {}
-    fn set_fill_paint(&mut self, _paint: &Paint) {}
-    fn set_stroke_paint(&mut self, _paint: &Paint) {}
-    fn paint_shading(&mut self, _shading: &ShadingSpec) {}
-    fn set_blend_mode(&mut self, _mode: BlendMode) {}
-    fn draw_image(
-        &mut self,
-        _image: &[u8],
-        _width: u32,
-        _height: u32,
-        _format: PixelFormat,
-        _smask: Option<SMaskData>,
-    ) {
-    }
-    #[allow(clippy::too_many_arguments)]
-    fn define_font(
-        &mut self,
-        _name: &str,
-        _base_name: Option<&str>,
-        _data: Option<Arc<Vec<u8>>>,
-        _index: Option<usize>,
-        _cid_to_gid_map: Option<std::collections::BTreeMap<u32, u32>>,
-        _fallback_type: FallbackFontType,
-        _is_cid_keyed: bool,
-    ) {
-    }
-    fn set_font(&mut self, _name: &str) {}
-    fn set_text_render_mode(&mut self, _mode: TextRenderingMode) {}
-    fn set_char_spacing(&mut self, _spacing: f64) {}
-    fn set_word_spacing(&mut self, _spacing: f64) {}
-}
+mod common;
+use common::assemble;
 
 /// A one-page form with one text field, its widget on the page, and Helvetica in `/DR`.
 fn form(extra_acro: &str, quadding: i64) -> Vec<u8> {
@@ -102,27 +38,11 @@ fn form(extra_acro: &str, quadding: i64) -> Vec<u8> {
         ),
         "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Name /Helv >>".to_string(),
     ];
-    let mut out = b"%PDF-2.0\n".to_vec();
-    let mut offsets = Vec::new();
-    for (i, body) in bodies.iter().enumerate() {
-        offsets.push(out.len());
-        out.extend_from_slice(format!("{} 0 obj\n{body}\nendobj\n", i + 1).as_bytes());
-    }
-    let table_at = out.len();
-    let size = bodies.len() + 1;
-    out.extend_from_slice(format!("xref\n0 {size}\n0000000000 65535 f \n").as_bytes());
-    for offset in &offsets {
-        out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
-    }
-    out.extend_from_slice(
-        format!("trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{table_at}\n%%EOF\n")
-            .as_bytes(),
-    );
-    out
+    assemble(&bodies)
 }
 
 /// Sets the field, then reports the document and what its widget's appearance draws.
-fn fill(file: Vec<u8>, value: &str) -> (PdfDocument, Drawn) {
+fn fill(file: Vec<u8>, value: &str) -> (PdfDocument, Recorder) {
     let mut doc = PdfDocument::open_with_options(file.into(), &IngestionOptions::default())
         .expect("the fixture opens");
     doc.apply(Operation::SetFormFieldValue(FormFieldSpec {
@@ -134,7 +54,7 @@ fn fill(file: Vec<u8>, value: &str) -> (PdfDocument, Drawn) {
     // The appearance is a form XObject on the widget, and executing it is exactly what a
     // reader does with it — so the assertion is on marks reaching a backend, not on the
     // bytes of a dictionary.
-    let mut drawn = Drawn::default();
+    let mut drawn = Recorder::new();
     {
         let arena = doc.inner().arena();
         let widget = arena.get_object(fepdf_model::Handle::new(5)).expect("the widget");
@@ -168,10 +88,17 @@ fn normal_appearance(
 #[test]
 fn a_value_set_into_a_text_field_is_drawn() {
     let (_, drawn) = fill(form("", 0), "HELLO");
-    assert!(drawn.text.contains("HELLO"), "the appearance drew {:?}", drawn.text);
+    assert!(drawn.text().contains("HELLO"), "the appearance drew {:?}", drawn.text());
 }
 
 /// The deprecated entry is not written. 0.3 lists `/NeedAppearances` among the features
+/// Where the first run of text was placed across the page.
+fn first_x(drawn: &Recorder) -> Option<f64> {
+    drawn.events.iter().find_map(|e| {
+        if let Event::Text { transform, .. } = e { Some(transform.as_coeffs()[4]) } else { None }
+    })
+}
+
 /// PDF 2.0 deprecates, and this engine's rule is not to write those.
 #[test]
 fn need_appearances_is_not_written() {
@@ -189,7 +116,7 @@ fn need_appearances_is_not_written() {
 fn quadding_moves_the_text_because_the_font_gives_its_width() {
     let (_, left) = fill(form("", 0), "HELLO");
     let (_, right) = fill(form("", 2), "HELLO");
-    let (left_x, right_x) = (left.first_x.expect("drawn"), right.first_x.expect("drawn"));
+    let (left_x, right_x) = (first_x(&left).expect("drawn"), first_x(&right).expect("drawn"));
     assert!(
         right_x > left_x + 50.0,
         "right-justified text should start well right of left-justified: {left_x} vs {right_x}"

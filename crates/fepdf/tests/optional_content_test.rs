@@ -14,107 +14,13 @@
 //! of asking.
 
 use fepdf::{IngestionOptions, PdfDocument};
-use fepdf_content::{
-    BlendMode, Color, FallbackFontType, Paint, PixelFormat, RenderBackend, SMaskData, ShadingSpec,
-    StrokeStyle, TextGlyph, TextState, WindingRule,
-};
-use fepdf_model::graphics::TextRenderingMode;
-use kurbo::{Affine, BezPath, Shape};
-use std::sync::Arc;
+use kurbo::Affine;
+
+pub mod recorder;
+use recorder::Recorder;
 
 mod common;
 use common::assemble;
-
-/// Everything the interpreter asked for, in the order it asked.
-#[derive(Default)]
-struct Recorder {
-    /// The origin of each filled path, in user space.
-    fills: Vec<(f64, f64)>,
-    /// How many images were drawn.
-    images: usize,
-    /// How many glyph runs were shown.
-    text_runs: usize,
-    /// How many state operations arrived — these must *not* be suppressed.
-    state_calls: usize,
-}
-
-impl Recorder {
-    /// Whether the square in the top-left quarter reached the page.
-    fn painted_top_left(&self) -> bool {
-        self.fills.iter().any(|(x, y)| *x < 50.0 && *y > 50.0)
-    }
-
-    /// Whether the unconditional square in the bottom-right did.
-    fn painted_bottom_right(&self) -> bool {
-        self.fills.iter().any(|(x, y)| *x > 50.0 && *y < 50.0)
-    }
-}
-
-impl RenderBackend for Recorder {
-    fn fill_path(&mut self, path: &BezPath, _color: &Color, _rule: WindingRule) {
-        let box_ = path.bounding_box();
-        self.fills.push((box_.x0, box_.y0));
-    }
-    fn draw_image(
-        &mut self,
-        _image: &[u8],
-        _width: u32,
-        _height: u32,
-        _format: PixelFormat,
-        _smask: Option<SMaskData>,
-    ) {
-        self.images += 1;
-    }
-    fn show_text(
-        &mut self,
-        _glyphs: &[TextGlyph],
-        _size: f64,
-        _transform: Affine,
-        _state: TextState,
-        _op_index: usize,
-    ) {
-        self.text_runs += 1;
-    }
-    fn push_state(&mut self) {
-        self.state_calls += 1;
-    }
-    fn pop_state(&mut self) {
-        self.state_calls += 1;
-    }
-    fn set_fill_color(&mut self, _color: Color) {
-        self.state_calls += 1;
-    }
-    fn transform(&mut self, _transform: Affine) {
-        self.state_calls += 1;
-    }
-    fn stroke_path(&mut self, _path: &BezPath, _color: &Color, _style: &StrokeStyle) {}
-    fn set_transform(&mut self, _transform: Affine) {}
-    fn push_clip(&mut self, _path: &BezPath, _rule: WindingRule) {}
-    fn pop_clip(&mut self) {}
-    fn set_fill_alpha(&mut self, _alpha: f64) {}
-    fn set_stroke_alpha(&mut self, _alpha: f64) {}
-    fn set_stroke_color(&mut self, _color: Color) {}
-    fn set_fill_paint(&mut self, _paint: &Paint) {}
-    fn set_stroke_paint(&mut self, _paint: &Paint) {}
-    fn paint_shading(&mut self, _shading: &ShadingSpec) {}
-    fn set_blend_mode(&mut self, _mode: BlendMode) {}
-    #[allow(clippy::too_many_arguments)]
-    fn define_font(
-        &mut self,
-        _name: &str,
-        _base_name: Option<&str>,
-        _data: Option<Arc<Vec<u8>>>,
-        _index: Option<usize>,
-        _cid_to_gid_map: Option<std::collections::BTreeMap<u32, u32>>,
-        _fallback_type: FallbackFontType,
-        _is_cid_keyed: bool,
-    ) {
-    }
-    fn set_font(&mut self, _name: &str) {}
-    fn set_text_render_mode(&mut self, _mode: TextRenderingMode) {}
-    fn set_char_spacing(&mut self, _spacing: f64) {}
-    fn set_word_spacing(&mut self, _spacing: f64) {}
-}
 
 /// The square under test, in the top-left quarter of a 200×200 page.
 const TOP_LEFT: &str = "0 0 0 rg 0 100 100 100 re f\n";
@@ -148,24 +54,41 @@ fn group(extra: &str) -> String {
 }
 
 /// Interprets page 1 and reports what the backend was asked to draw.
+/// Whether a fill landed in the top-left or bottom-right quadrant of the 200x200 page.
+fn painted_top_left(drawn: &Recorder) -> bool {
+    drawn.fills().iter().any(|b| b.x0 < 50.0 && b.y0 > 50.0)
+}
+
+fn painted_bottom_right(drawn: &Recorder) -> bool {
+    drawn.fills().iter().any(|b| b.x0 > 50.0 && b.y0 < 50.0)
+}
+
+/// The graphics-state operators that reached the backend: `q`, `Q`, `cm` and a fill colour.
+fn state_calls(drawn: &Recorder) -> usize {
+    drawn.count("push_state")
+        + drawn.count("pop_state")
+        + drawn.count("transform")
+        + drawn.count("fill_color")
+}
+
 fn draw(file: Vec<u8>) -> Recorder {
     let document = PdfDocument::open_with_options(file.into(), &IngestionOptions::default())
         .expect("the fixture opens");
-    let mut recorder = Recorder::default();
+    let mut recorder = Recorder::new();
     document.render_page(0, &mut recorder, Affine::IDENTITY).expect("the page interprets");
     recorder
 }
 
 /// Asserts the conditional square was withheld and the unconditional one was not.
 fn assert_hidden(what: &str, recorder: &Recorder) {
-    assert!(!recorder.painted_top_left(), "{what}: the hidden square was painted");
-    assert!(recorder.painted_bottom_right(), "{what}: the rest of the page went with it");
+    assert!(!painted_top_left(recorder), "{what}: the hidden square was painted");
+    assert!(painted_bottom_right(recorder), "{what}: the rest of the page went with it");
 }
 
 /// Asserts both squares reached the page.
 fn assert_drawn(what: &str, recorder: &Recorder) {
-    assert!(recorder.painted_top_left(), "{what}: the visible square was withheld");
-    assert!(recorder.painted_bottom_right(), "{what}: the rest of the page went with it");
+    assert!(painted_top_left(recorder), "{what}: the visible square was withheld");
+    assert!(painted_bottom_right(recorder), "{what}: the rest of the page went with it");
 }
 
 /// A `/OC` section wrapping the content, with `/MC0` naming object 5.
@@ -396,8 +319,8 @@ fn an_image_xobject_with_a_hidden_oc_is_not_drawn() {
         &[group(""), image],
     );
     let recorder = draw(file);
-    assert_eq!(recorder.images, 0, "the hidden image was drawn");
-    assert!(recorder.painted_bottom_right(), "the rest of the page went with it");
+    assert_eq!(recorder.count("image"), 0, "the hidden image was drawn");
+    assert!(painted_bottom_right(&recorder), "the rest of the page went with it");
 }
 
 // --- the two forms a real file used, and this engine did not read -------------------
@@ -557,11 +480,11 @@ fn a_hidden_section_still_changes_the_graphics_state() {
         &[group("")],
     );
     let recorder = draw(file);
-    assert!(!recorder.painted_top_left(), "the hidden square was painted");
+    assert!(!painted_top_left(&recorder), "the hidden square was painted");
     assert!(
-        recorder.state_calls >= 3,
+        state_calls(&recorder) >= 3,
         "state operators inside the hidden section did not reach the backend: {} calls",
-        recorder.state_calls
+        state_calls(&recorder)
     );
 }
 
@@ -579,6 +502,6 @@ fn text_inside_a_hidden_section_is_not_shown() {
         &[group(""), "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string()],
     );
     let recorder = draw(file);
-    assert_eq!(recorder.text_runs, 0, "text in a hidden layer reached the backend");
-    assert!(recorder.painted_bottom_right(), "the rest of the page went with it");
+    assert_eq!(recorder.count("text"), 0, "text in a hidden layer reached the backend");
+    assert!(painted_bottom_right(&recorder), "the rest of the page went with it");
 }

@@ -17,8 +17,10 @@
 
 use fepdf::PdfDocument;
 
+mod common;
+use common::assemble;
+
 fn tagged_document() -> PdfDocument {
-    use std::fmt::Write as _;
     let objects = [
         "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
         "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
@@ -28,20 +30,8 @@ fn tagged_document() -> PdfDocument {
         "<< /Type /StructElem /S /H1 /P 5 0 R /Pg 3 0 R >>",
         "<< /Type /StructElem /S /Figure /P 5 0 R /Pg 3 0 R /Alt (a photograph) >>",
     ];
-    let mut out = String::from("%PDF-2.0\n");
-    let mut offsets = Vec::new();
-    for (index, body) in objects.iter().enumerate() {
-        offsets.push(out.len());
-        let _ = write!(out, "{} 0 obj\n{body}\nendobj\n", index + 1);
-    }
-    let table_at = out.len();
-    let size = objects.len() + 1;
-    let _ = write!(out, "xref\n0 {size}\n0000000000 65535 f \n");
-    for offset in &offsets {
-        let _ = writeln!(out, "{offset:010} 00000 n ");
-    }
-    let _ = write!(out, "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{table_at}\n%%EOF\n");
-    PdfDocument::open(bytes::Bytes::from(out.into_bytes())).expect("the fixture opens")
+    PdfDocument::open(bytes::Bytes::from(assemble(&objects.map(String::from))))
+        .expect("the fixture opens")
 }
 
 /// The tree it prints is the tree the document carries.
@@ -89,26 +79,13 @@ fn the_dump_carries_no_storage_vocabulary() {
 /// A document with no structure says so, rather than printing an empty tree.
 #[test]
 fn an_untagged_document_says_it_has_none() {
-    use std::fmt::Write as _;
     let objects = [
         "<< /Type /Catalog /Pages 2 0 R >>",
         "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
         "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
     ];
-    let mut out = String::from("%PDF-2.0\n");
-    let mut offsets = Vec::new();
-    for (index, body) in objects.iter().enumerate() {
-        offsets.push(out.len());
-        let _ = write!(out, "{} 0 obj\n{body}\nendobj\n", index + 1);
-    }
-    let table_at = out.len();
-    let size = objects.len() + 1;
-    let _ = write!(out, "xref\n0 {size}\n0000000000 65535 f \n");
-    for offset in &offsets {
-        let _ = writeln!(out, "{offset:010} 00000 n ");
-    }
-    let _ = write!(out, "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{table_at}\n%%EOF\n");
-    let doc = PdfDocument::open(bytes::Bytes::from(out.into_bytes())).expect("the fixture opens");
+    let doc = PdfDocument::open(bytes::Bytes::from(assemble(&objects.map(String::from))))
+        .expect("the fixture opens");
 
     let printed = doc.print_structure().expect("it prints");
     assert!(printed.to_lowercase().contains("no logical structure"), "{printed}");

@@ -11,83 +11,75 @@
 //! whether the interpreter *called* it.
 
 use fepdf::PdfDocument;
-use fepdf_content::{
-    BlendMode, Color, FallbackFontType, PixelFormat, RenderBackend, SMaskData, SoftMaskKind,
-    SoftMaskSpec, StrokeStyle, TextGlyph, TextState, WindingRule,
-};
-use fepdf_model::graphics::TextRenderingMode;
+use fepdf_content::{BlendMode, Color, SoftMaskKind};
 use fepdf_model::interpretation::Severity;
-use kurbo::{Affine, BezPath, Shape};
-use std::sync::Arc;
+use kurbo::{Affine, Shape};
+
+pub mod recorder;
+use recorder::{Event, Recorder};
 
 mod common;
 use common::assemble;
 
-/// What the interpreter asked the backend to do, in the order it asked.
-#[derive(Default)]
-struct Recorder {
-    fills: Vec<(f64, f64)>,
-    fill_alpha: Vec<f64>,
-    stroke_alpha: Vec<f64>,
-    blend: Vec<BlendMode>,
-    /// The soft-mask bracket and the fills inside it, in the order they arrived.
-    events: Vec<String>,
-    /// Every mask the interpreter described, as the backend was told it.
-    masks: Vec<SoftMaskSpec>,
+/// The mask bracket and the fills inside it, in order.
+///
+/// Filtered rather than taken whole: the shared recorder logs every call, and what this
+/// file asserts is where the fills sit relative to the bracket — the `q`/`Q` and colour
+/// calls between them are another test's subject.
+fn bracket(drawn: &Recorder) -> Vec<String> {
+    drawn
+        .events
+        .iter()
+        .filter_map(|e| {
+            if let Event::Fill { path, .. } = e {
+                let b = path.bounding_box();
+                return Some(format!("fill({}, {})", b.x0, b.y0));
+            }
+            matches!(e, Event::BeginMaskedContent | Event::BeginSoftMask(_) | Event::EndSoftMask)
+                .then(|| e.name().to_string())
+        })
+        .collect()
 }
 
-impl RenderBackend for Recorder {
-    fn fill_path(&mut self, path: &BezPath, _color: &Color, _rule: WindingRule) {
-        let bounds = path.bounding_box();
-        self.fills.push((bounds.x0, bounds.y0));
-        self.events.push(format!("fill({}, {})", bounds.x0, bounds.y0));
-    }
-    fn begin_masked_content(&mut self) {
-        self.events.push("begin_masked_content".to_string());
-    }
-    fn begin_soft_mask(&mut self, spec: &SoftMaskSpec) {
-        self.events.push("begin_soft_mask".to_string());
-        self.masks.push(spec.clone());
-    }
-    fn end_soft_mask(&mut self) {
-        self.events.push("end_soft_mask".to_string());
-    }
-    fn set_fill_alpha(&mut self, alpha: f64) {
-        self.fill_alpha.push(alpha);
-    }
-    fn set_stroke_alpha(&mut self, alpha: f64) {
-        self.stroke_alpha.push(alpha);
-    }
-    fn set_blend_mode(&mut self, mode: BlendMode) {
-        self.blend.push(mode);
-    }
-    fn transform(&mut self, _t: Affine) {}
-    fn set_transform(&mut self, _t: Affine) {}
-    fn push_state(&mut self) {}
-    fn pop_state(&mut self) {}
-    fn stroke_path(&mut self, _p: &BezPath, _c: &Color, _s: &StrokeStyle) {}
-    fn set_fill_color(&mut self, _c: Color) {}
-    fn set_stroke_color(&mut self, _c: Color) {}
-    fn draw_image(&mut self, _d: &[u8], _w: u32, _h: u32, _f: PixelFormat, _s: Option<SMaskData>) {}
-    fn push_clip(&mut self, _p: &BezPath, _r: WindingRule) {}
-    fn pop_clip(&mut self) {}
-    fn show_text(&mut self, _g: &[TextGlyph], _s: f64, _t: Affine, _ts: TextState, _o: usize) {}
-    #[allow(clippy::too_many_arguments)]
-    fn define_font(
-        &mut self,
-        _n: &str,
-        _b: Option<&str>,
-        _d: Option<Arc<Vec<u8>>>,
-        _i: Option<usize>,
-        _m: Option<std::collections::BTreeMap<u32, u32>>,
-        _f: FallbackFontType,
-        _c: bool,
-    ) {
-    }
-    fn set_font(&mut self, _n: &str) {}
-    fn set_text_render_mode(&mut self, _m: TextRenderingMode) {}
-    fn set_char_spacing(&mut self, _s: f64) {}
-    fn set_word_spacing(&mut self, _s: f64) {}
+/// The corner of each filled box, in the order they were filled.
+fn fills(drawn: &Recorder) -> Vec<(f64, f64)> {
+    drawn.fills().iter().map(|b| (b.x0, b.y0)).collect()
+}
+
+/// Each `/ca` the page set, in order.
+fn fill_alpha(drawn: &Recorder) -> Vec<f64> {
+    drawn
+        .events
+        .iter()
+        .filter_map(|e| if let Event::FillAlpha(a) = e { Some(*a) } else { None })
+        .collect()
+}
+
+/// Each `/CA` the page set, in order.
+fn stroke_alpha(drawn: &Recorder) -> Vec<f64> {
+    drawn
+        .events
+        .iter()
+        .filter_map(|e| if let Event::StrokeAlpha(a) = e { Some(*a) } else { None })
+        .collect()
+}
+
+/// Each `/BM` the page set, in order.
+fn blend(drawn: &Recorder) -> Vec<BlendMode> {
+    drawn
+        .events
+        .iter()
+        .filter_map(|e| if let Event::Blend(m) = e { Some(*m) } else { None })
+        .collect()
+}
+
+/// Every soft mask the page described.
+fn masks(drawn: &Recorder) -> Vec<fepdf_content::SoftMaskSpec> {
+    drawn
+        .events
+        .iter()
+        .filter_map(|e| if let Event::BeginSoftMask(spec) = e { Some(spec.clone()) } else { None })
+        .collect()
 }
 
 /// One page holding all four questions at once, so an assertion about any of them also
@@ -156,7 +148,7 @@ fn document_with_mask(gs: &str) -> PdfDocument {
 }
 
 fn draw(document: &PdfDocument) -> Recorder {
-    let mut recorder = Recorder::default();
+    let mut recorder = Recorder::new();
     document.render_page(0, &mut recorder, Affine::IDENTITY).expect("the page interprets");
     recorder
 }
@@ -176,9 +168,9 @@ fn constant_alpha_and_blend_mode_reach_the_backend() {
     // The half of the row that was true, pinned so that "not re-measured" cannot happen
     // to it twice.
     let recorder = draw(&document(""));
-    assert_eq!(recorder.fill_alpha, vec![0.5], "/ca");
-    assert_eq!(recorder.stroke_alpha, vec![0.25], "/CA");
-    assert_eq!(recorder.blend, vec![BlendMode::Multiply], "/BM");
+    assert_eq!(fill_alpha(&recorder), vec![0.5], "/ca");
+    assert_eq!(stroke_alpha(&recorder), vec![0.25], "/CA");
+    assert_eq!(blend(&recorder), vec![BlendMode::Multiply], "/BM");
 }
 
 #[test]
@@ -192,20 +184,18 @@ fn a_soft_mask_reaches_the_backend_as_a_bracket() {
     // call followed, so a mask that should have hidden the square left it at full
     // strength and the log said nothing.
     let recorder = draw(&document(""));
-    let bracket: Vec<&str> = recorder
-        .events
-        .iter()
-        .map(String::as_str)
-        .skip_while(|e| *e != "begin_masked_content")
-        .take_while(|e| *e != "end_soft_mask")
+    let inside: Vec<String> = bracket(&recorder)
+        .into_iter()
+        .skip_while(|e| e != "begin_masked_content")
+        .take_while(|e| e != "end_soft_mask")
         .collect();
     assert_eq!(
-        bracket,
+        inside,
         vec!["begin_masked_content", "fill(0, 100)", "begin_soft_mask", "fill(0, 0)"],
         "content, then the mask that covers it: {:?}",
-        recorder.events
+        bracket(&recorder)
     );
-    assert!(recorder.events.contains(&"end_soft_mask".to_string()), "{:?}", recorder.events);
+    assert!(recorder.count("end_soft_mask") > 0, "{:?}", bracket(&recorder));
 }
 
 #[test]
@@ -214,7 +204,8 @@ fn the_spec_says_how_the_group_becomes_an_alpha() {
     // group's drawing turns into a number, so they travel together and the backend
     // decides which of them it can honour.
     let plain = draw(&document(""));
-    let spec = plain.masks.first().expect("the mask was described");
+    let described = masks(&plain);
+    let spec = described.first().expect("the mask was described");
     assert_eq!(spec.kind, SoftMaskKind::Luminosity, "the default when /S is absent");
     assert!(spec.backdrop.is_none(), "no /BC");
     assert!(spec.transfer.is_none(), "no /TR");
@@ -229,7 +220,7 @@ fn an_alpha_mask_with_a_backdrop_arrives_whole() {
     let doc = document_with_mask(
         "<< /Type /ExtGState /SMask << /S /Alpha /G 6 0 R /BC [0.25]          /TR << /FunctionType 2 /Domain [0 1] /C0 [0] /C1 [1] /N 1 >> >> >>",
     );
-    let spec = draw(&doc).masks.first().cloned().expect("described");
+    let spec = masks(&draw(&doc)).first().cloned().expect("described");
     assert_eq!(spec.kind, SoftMaskKind::Alpha);
     assert_eq!(spec.backdrop, Some(Color::Gray(0.25)));
     assert!(spec.transfer.is_some(), "/TR parsed through the 7.10 evaluator");
@@ -243,7 +234,7 @@ fn an_identity_transfer_is_the_absence_of_one() {
     let doc = document_with_mask(
         "<< /Type /ExtGState /SMask << /S /Luminosity /G 6 0 R /TR /Identity >> >>",
     );
-    let spec = draw(&doc).masks.first().cloned().expect("described");
+    let spec = masks(&draw(&doc)).first().cloned().expect("described");
     assert!(spec.transfer.is_none());
     assert!(spec.is_plain_luminosity());
 }
@@ -254,7 +245,7 @@ fn isolation_and_knockout_change_nothing_and_are_recorded() {
     // the same backend calls in the same order, which is the strongest form this can take.
     let plain = document("");
     let asked = document("/Group << /S /Transparency /I true /K true >>");
-    assert_eq!(draw(&plain).fills, draw(&asked).fills, "the entry changes nothing drawn");
+    assert_eq!(fills(&draw(&plain)), fills(&draw(&asked)), "the entry changes nothing drawn");
 
     let recorded = decisions_on(&asked, "11.6.6");
     assert_eq!(recorded.len(), 1, "{recorded:?}");
@@ -270,7 +261,7 @@ fn a_group_that_asks_for_neither_is_not_recorded() {
     assert!(decisions_on(&plain, "11.6.6").is_empty(), "a plain group is not a departure");
     // Six and not five: four squares, the form's own, and the mask group's, which is what
     // a soft mask being replayed at all looks like from here.
-    assert_eq!(draw(&plain).fills.len(), 6, "and it still draws");
+    assert_eq!(fills(&draw(&plain)).len(), 6, "and it still draws");
 }
 
 #[test]

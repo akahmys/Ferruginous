@@ -10,6 +10,9 @@ use fepdf_model::{
     VisibilityState,
 };
 
+pub mod common;
+use common::assemble_with_root;
+
 #[test]
 fn test_portfolio_domain_model() {
     let portfolio = PortfolioCollection {
@@ -118,31 +121,11 @@ fn test_output_intent_domain_model() {
 /// the literal string "Valid Signer" for any bytes that parsed as one DER element. The
 /// only branch of it that told the truth was the empty-input one, and that was the
 /// branch the test pinned.
-fn assemble_pdf(objs: &[&str], root: usize) -> Vec<u8> {
-    use std::fmt::Write as _;
-    let mut out = String::from("%PDF-2.0\n");
-    let mut offsets = vec![0_usize];
-    for (i, body) in objs.iter().enumerate() {
-        offsets.push(out.len());
-        let _ = write!(out, "{} 0 obj\n{body}\nendobj\n", i + 1);
-    }
-    let xref_at = out.len();
-    let _ = write!(out, "xref\n0 {}\n0000000000 65535 f \n", objs.len() + 1);
-    for off in offsets.iter().skip(1) {
-        let _ = writeln!(out, "{off:010} 00000 n ");
-    }
-    let _ = write!(
-        out,
-        "trailer\n<< /Size {} /Root {root} 0 R >>\nstartxref\n{xref_at}\n%%EOF\n",
-        objs.len() + 1
-    );
-    out.into_bytes()
-}
-
 #[test]
 fn a_file_with_no_signature_reports_none() {
-    let bytes = assemble_pdf(
-        &["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [] /Count 0 >>"],
+    let bytes = assemble_with_root(
+        &["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [] /Count 0 >>"]
+            .map(String::from),
         1,
     );
     let report = fepdf::SignatureReport::survey(&bytes).expect("a report");
@@ -526,6 +509,7 @@ fn test_all_remaining_operations_execution() {
         certificate_der_bytes: vec![0x30, 0x82, 0x01, 0x0a],
         encrypted_key_bytes: vec![0xaa, 0xbb, 0xcc],
     };
+
     doc.apply(Operation::AddPublicKeyRecipient(recipient)).expect("AddPublicKeyRecipient failed");
 
     // 6. SetPronunciationLexicon

@@ -21,6 +21,9 @@
 use fepdf::{IngestionOptions, PdfDocument};
 use std::sync::OnceLock;
 
+mod common;
+use common::assemble;
+
 /// `samples/fy05.pdf`, opened once for the whole binary.
 ///
 /// **Opening it is most of what these tests cost.** The document is 846 pages and a debug
@@ -88,8 +91,6 @@ fn every_page_of_the_sample_extracts() {
 /// number. This needs no corpus: the failure is in reading one content stream.
 #[test]
 fn a_page_that_paints_with_a_pattern_yields_its_text() {
-    use std::fmt::Write as _;
-
     let content = "q /Pattern cs /P1 scn 0 0 100 100 re f Q\n\
                    BT /F1 24 Tf 20 120 Td (Painted beside a pattern) Tj ET\n";
     let objects = [
@@ -111,25 +112,11 @@ fn a_page_that_paints_with_a_pattern_yields_its_text() {
         },
     ];
 
-    let mut out = String::from("%PDF-2.0\n");
-    let mut offsets = Vec::new();
-    for (index, body) in objects.iter().enumerate() {
-        offsets.push(out.len());
-        let _ = write!(out, "{} 0 obj\n{body}\nendobj\n", index + 1);
-    }
-    let table_at = out.len();
-    let size = objects.len() + 1;
-    let _ = write!(out, "xref\n0 {size}\n0000000000 65535 f \n");
-    for offset in &offsets {
-        let _ = writeln!(out, "{offset:010} 00000 n ");
-    }
-    let _ = write!(out, "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{table_at}\n%%EOF\n");
+    let out = assemble(&objects.map(String::from));
 
-    let document = PdfDocument::open_with_options(
-        bytes::Bytes::from(out.into_bytes()),
-        &IngestionOptions::default(),
-    )
-    .expect("the fixture opens");
+    let document =
+        PdfDocument::open_with_options(bytes::Bytes::from(out), &IngestionOptions::default())
+            .expect("the fixture opens");
 
     let text = document.extract_text(0).expect("the page extracts");
     assert!(

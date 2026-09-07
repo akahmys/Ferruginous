@@ -21,13 +21,11 @@
 //! "Created by OpenJPEG version 2.5.3".
 
 use fepdf::{IngestionOptions, PdfDocument};
-use fepdf_content::{
-    BlendMode, Color, FallbackFontType, Paint, PixelFormat, RenderBackend, SMaskData, ShadingSpec,
-    StrokeStyle, TextGlyph, TextState, WindingRule,
-};
-use fepdf_model::graphics::TextRenderingMode;
-use kurbo::{Affine, BezPath};
-use std::sync::Arc;
+use fepdf_content::PixelFormat;
+use kurbo::Affine;
+
+pub mod recorder;
+use recorder::{ImageDrawn, Recorder};
 
 /// 8x8 RGBA: left half opaque red, right half blue at 128/255. Colour not premultiplied.
 const RGBA_STRAIGHT: &[u8] = &[
@@ -103,70 +101,6 @@ const RGB_NO_ALPHA: &[u8] = &[
     0x2b, 0xbc, 0xff, 0xd9,
 ];
 
-/// The one image the page draws, as the backend was given it.
-#[derive(Default)]
-struct Drawn {
-    samples: Vec<u8>,
-    mask: Option<SMaskData>,
-    format: Option<PixelFormat>,
-}
-
-impl RenderBackend for Drawn {
-    fn draw_image(
-        &mut self,
-        image: &[u8],
-        _width: u32,
-        _height: u32,
-        format: PixelFormat,
-        smask: Option<SMaskData>,
-    ) {
-        self.samples = image.to_vec();
-        self.mask = smask;
-        self.format = Some(format);
-    }
-    fn transform(&mut self, _transform: Affine) {}
-    fn set_transform(&mut self, _transform: Affine) {}
-    fn push_state(&mut self) {}
-    fn pop_state(&mut self) {}
-    fn fill_path(&mut self, _path: &BezPath, _color: &Color, _rule: WindingRule) {}
-    fn stroke_path(&mut self, _path: &BezPath, _color: &Color, _style: &StrokeStyle) {}
-    fn push_clip(&mut self, _path: &BezPath, _rule: WindingRule) {}
-    fn pop_clip(&mut self) {}
-    fn set_fill_alpha(&mut self, _alpha: f64) {}
-    fn set_stroke_alpha(&mut self, _alpha: f64) {}
-    fn set_fill_color(&mut self, _color: Color) {}
-    fn set_stroke_color(&mut self, _color: Color) {}
-    fn set_fill_paint(&mut self, _paint: &Paint) {}
-    fn set_stroke_paint(&mut self, _paint: &Paint) {}
-    fn paint_shading(&mut self, _shading: &ShadingSpec) {}
-    fn set_blend_mode(&mut self, _mode: BlendMode) {}
-    fn show_text(
-        &mut self,
-        _glyphs: &[TextGlyph],
-        _size: f64,
-        _transform: Affine,
-        _state: TextState,
-        _op_index: usize,
-    ) {
-    }
-    #[allow(clippy::too_many_arguments)]
-    fn define_font(
-        &mut self,
-        _name: &str,
-        _base_name: Option<&str>,
-        _data: Option<Arc<Vec<u8>>>,
-        _index: Option<usize>,
-        _cid_to_gid_map: Option<std::collections::BTreeMap<u32, u32>>,
-        _fallback_type: FallbackFontType,
-        _is_cid_keyed: bool,
-    ) {
-    }
-    fn set_font(&mut self, _name: &str) {}
-    fn set_text_render_mode(&mut self, _mode: TextRenderingMode) {}
-    fn set_char_spacing(&mut self, _spacing: f64) {}
-    fn set_word_spacing(&mut self, _spacing: f64) {}
-}
-
 /// A one-page file drawing `codestream` as an 8x8 `/JPXDecode` image, with `entries`
 /// merged into the image dictionary.
 fn page_with_jpx(codestream: &[u8], entries: &str) -> Vec<u8> {
@@ -217,29 +151,38 @@ fn page_with_jpx(codestream: &[u8], entries: &str) -> Vec<u8> {
 }
 
 /// Draws the page and reports what the backend was handed, with the decisions taken.
-fn draw(codestream: &[u8], entries: &str) -> (Drawn, Vec<String>) {
+fn draw(codestream: &[u8], entries: &str) -> (Recorder, Vec<String>) {
     let doc = PdfDocument::open_with_options(
         page_with_jpx(codestream, entries).into(),
         &IngestionOptions::default(),
     )
     .expect("the fixture opens");
-    let mut drawn = Drawn::default();
+    let mut drawn = Recorder::new();
     doc.render_page(0, &mut drawn, Affine::IDENTITY).expect("the page interprets");
     let decisions = doc.decisions().iter().map(|d| format!("{} {}", d.clause, d.found)).collect();
     (drawn, decisions)
 }
 
+/// The one image the page drew.
+fn image(drawn: &Recorder) -> ImageDrawn<'_> {
+    drawn.last_image().expect("the page drew an image")
+}
+
 /// The colour of the pixel at `x` in the first row, and its opacity.
-fn pixel(drawn: &Drawn, x: usize) -> ([u8; 3], Option<u8>) {
+fn pixel(drawn: &Recorder, x: usize) -> ([u8; 3], Option<u8>) {
+    let drawn = image(drawn);
     let colour = [drawn.samples[x * 3], drawn.samples[x * 3 + 1], drawn.samples[x * 3 + 2]];
-    let opacity = drawn.mask.as_ref().and_then(|m| m.data.get(x).copied());
+    let opacity = drawn.smask.as_ref().and_then(|m| m.data.get(x).copied());
     (colour, opacity)
 }
 
 #[test]
 fn smask_in_data_one_keeps_the_alpha_the_codestream_carries() {
     let (drawn, _) = draw(RGBA_STRAIGHT, "/SMaskInData 1");
-    let mask = drawn.mask.as_ref().expect("the image data carried a soft mask and it was dropped");
+    let mask = image(&drawn)
+        .smask
+        .as_ref()
+        .expect("the image data carried a soft mask and it was dropped");
     assert_eq!(mask.format, PixelFormat::Gray8);
     assert_eq!(mask.data.len(), 64, "one byte of opacity per pixel");
     assert_eq!(pixel(&drawn, 0), ([255, 0, 0], Some(255)), "the opaque half");
@@ -251,8 +194,8 @@ fn smask_in_data_one_keeps_the_alpha_the_codestream_carries() {
 #[test]
 fn smask_in_data_zero_drops_the_alpha() {
     let (drawn, decisions) = draw(RGBA_STRAIGHT, "");
-    assert!(drawn.mask.is_none(), "an unasked-for mask was applied");
-    assert_eq!(drawn.samples.len(), 8 * 8 * 3, "the alpha channel is not in the samples");
+    assert!(image(&drawn).smask.is_none(), "an unasked-for mask was applied");
+    assert_eq!(image(&drawn).samples.len(), 8 * 8 * 3, "the alpha channel is not in the samples");
     assert_eq!(pixel(&drawn, 4).0, [0, 0, 255]);
     assert!(decisions.is_empty(), "the default is conforming and recorded nothing: {decisions:?}");
 }
@@ -274,7 +217,7 @@ fn smask_in_data_two_divides_the_alpha_back_out() {
 #[test]
 fn a_mask_the_codestream_does_not_carry_is_recorded() {
     let (drawn, decisions) = draw(RGB_NO_ALPHA, "/SMaskInData 1");
-    assert!(drawn.mask.is_none());
+    assert!(image(&drawn).smask.is_none());
     assert!(
         decisions.iter().any(|d| d.starts_with("8.9.5.2") && d.contains("does not carry")),
         "drawing it opaque was not reported: {decisions:?}"
@@ -286,7 +229,7 @@ fn a_mask_the_codestream_does_not_carry_is_recorded() {
 #[test]
 fn a_value_table_89_does_not_define_is_recorded_and_read_as_zero() {
     let (drawn, decisions) = draw(RGBA_STRAIGHT, "/SMaskInData 3");
-    assert!(drawn.mask.is_none(), "a value outside the table must not select a behaviour");
+    assert!(image(&drawn).smask.is_none(), "a value outside the table must not select a behaviour");
     assert!(
         decisions.iter().any(|d| d.starts_with("8.9.5.2") && d.contains("is 3")),
         "the out-of-range value was not reported: {decisions:?}"

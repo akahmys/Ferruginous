@@ -9,6 +9,9 @@
 
 use fepdf::{IngestionOptions, PdfDocument};
 
+mod common;
+use common::assemble;
+
 /// A page that draws an image whose filter cannot be decoded, and then shows text.
 fn page_drawing_an_undecodable_image(filter: &str) -> Vec<u8> {
     let content = "q 100 0 0 67 20 120 cm /ImgX Do Q BT /F1 24 Tf 1 0 0 1 20 60 Tm (TEXT AFTER THE IMAGE) Tj ET";
@@ -27,27 +30,7 @@ fn page_drawing_an_undecodable_image(filter: &str) -> Vec<u8> {
         ),
         "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
     ];
-    let mut out = b"%PDF-1.7\n".to_vec();
-    let mut offsets = Vec::new();
-    for (i, body) in bodies.iter().enumerate() {
-        offsets.push(out.len());
-        out.extend_from_slice(format!("{} 0 obj\n{body}\nendobj\n", i + 1).as_bytes());
-    }
-    let table_at = out.len();
-    out.extend_from_slice(
-        format!("xref\n0 {}\n0000000000 65535 f \n", bodies.len() + 1).as_bytes(),
-    );
-    for offset in &offsets {
-        out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
-    }
-    out.extend_from_slice(
-        format!(
-            "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{table_at}\n%%EOF\n",
-            bodies.len() + 1
-        )
-        .as_bytes(),
-    );
-    out
+    assemble(&bodies)
 }
 
 /// The text after the image still comes out, whichever filter the image used.

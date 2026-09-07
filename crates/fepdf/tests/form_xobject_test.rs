@@ -12,93 +12,15 @@
 //! on, and it is the one the crate had no way to state.
 
 use fepdf::PdfDocument;
-use fepdf_content::{
-    Color, FallbackFontType, PixelFormat, RenderBackend, SMaskData, StrokeStyle, TextGlyph,
-    TextState, WindingRule,
-};
+use fepdf_content::Color;
 use fepdf_model::ingest::IngestionOptions;
-use kurbo::{Affine, BezPath, Shape};
-use std::sync::Arc;
+use kurbo::{Affine, Shape};
+
+pub mod recorder;
+use recorder::{Event, Recorder};
 
 mod common;
 use common::assemble;
-
-/// What the interpreter asked the backend to do, in the order it asked.
-#[derive(Default)]
-struct Recorder {
-    events: Vec<String>,
-}
-
-impl Recorder {
-    fn fills(&self) -> Vec<&str> {
-        self.events.iter().filter(|e| e.starts_with("fill")).map(String::as_str).collect()
-    }
-    fn count(&self, prefix: &str) -> usize {
-        self.events.iter().filter(|e| e.starts_with(prefix)).count()
-    }
-}
-
-impl RenderBackend for Recorder {
-    fn fill_path(&mut self, path: &BezPath, color: &Color, _rule: WindingRule) {
-        let b = path.bounding_box();
-        let shade = match *color {
-            Color::Rgb(red, green, blue) => format!("rgb {red:.1},{green:.1},{blue:.1}"),
-            Color::Gray(level) => format!("gray {level:.1}"),
-            Color::Cmyk(cyan, magenta, yellow, black) => {
-                format!("cmyk {cyan:.1},{magenta:.1},{yellow:.1},{black:.1}")
-            }
-            Color::Lab(lightness, green_red, blue_yellow) => {
-                format!("lab {lightness:.1},{green_red:.1},{blue_yellow:.1}")
-            }
-        };
-        self.events.push(format!("fill[{shade}]({:.1},{:.1},{:.1},{:.1})", b.x0, b.y0, b.x1, b.y1));
-    }
-    fn push_clip(&mut self, path: &BezPath, _rule: WindingRule) {
-        let b = path.bounding_box();
-        self.events.push(format!("push_clip({:.1},{:.1},{:.1},{:.1})", b.x0, b.y0, b.x1, b.y1));
-    }
-    fn pop_clip(&mut self) {
-        self.events.push("pop_clip".to_string());
-    }
-    fn push_state(&mut self) {
-        self.events.push("push_state".to_string());
-    }
-    fn pop_state(&mut self) {
-        self.events.push("pop_state".to_string());
-    }
-    fn transform(&mut self, t: Affine) {
-        let c = t.as_coeffs();
-        self.events.push(format!(
-            "transform({:.1},{:.1},{:.1},{:.1},{:.1},{:.1})",
-            c[0], c[1], c[2], c[3], c[4], c[5]
-        ));
-    }
-    fn set_transform(&mut self, _t: Affine) {}
-    fn stroke_path(&mut self, _p: &BezPath, _c: &Color, _s: &StrokeStyle) {}
-    fn draw_image(&mut self, _d: &[u8], _w: u32, _h: u32, _f: PixelFormat, _s: Option<SMaskData>) {}
-    fn show_text(&mut self, _g: &[TextGlyph], _s: f64, _t: Affine, _ts: TextState, _o: usize) {}
-    fn set_fill_color(&mut self, _c: Color) {}
-    fn set_stroke_color(&mut self, _c: Color) {}
-    fn set_fill_alpha(&mut self, _a: f64) {}
-    fn set_stroke_alpha(&mut self, _a: f64) {}
-    fn set_blend_mode(&mut self, _m: fepdf_content::BlendMode) {}
-    fn set_font(&mut self, _n: &str) {}
-    fn set_text_render_mode(&mut self, _m: fepdf_model::graphics::TextRenderingMode) {}
-    fn set_char_spacing(&mut self, _s: f64) {}
-    fn set_word_spacing(&mut self, _s: f64) {}
-    #[allow(clippy::too_many_arguments)]
-    fn define_font(
-        &mut self,
-        _n: &str,
-        _b: Option<&str>,
-        _d: Option<Arc<Vec<u8>>>,
-        _i: Option<usize>,
-        _m: Option<std::collections::BTreeMap<u32, u32>>,
-        _f: FallbackFontType,
-        _c: bool,
-    ) {
-    }
-}
 
 /// A page drawing one form through `/Do`, and one rectangle after it.
 ///
@@ -123,10 +45,59 @@ fn page(matrix: &str, bbox: &str) -> Vec<u8> {
     ])
 }
 
+/// The calls the form made, with the detail this file asserts on.
+///
+/// A string rather than the [`Event`] itself so the two implementations can be compared
+/// whole, and rounded to one decimal so a matrix that differs in the last bit of a f64
+/// does not read as two implementations disagreeing.
+fn calls(drawn: &Recorder) -> Vec<String> {
+    drawn
+        .events
+        .iter()
+        .filter_map(|e| {
+            if let Event::Fill { path, color, .. } = e {
+                let b = path.bounding_box();
+                let shade = match *color {
+                    Color::Rgb(red, green, blue) => format!("rgb {red:.1},{green:.1},{blue:.1}"),
+                    Color::Gray(level) => format!("gray {level:.1}"),
+                    Color::Cmyk(cyan, magenta, yellow, black) => {
+                        format!("cmyk {cyan:.1},{magenta:.1},{yellow:.1},{black:.1}")
+                    }
+                    Color::Lab(lightness, green_red, blue_yellow) => {
+                        format!("lab {lightness:.1},{green_red:.1},{blue_yellow:.1}")
+                    }
+                };
+                return Some(format!(
+                    "fill[{shade}]({:.1},{:.1},{:.1},{:.1})",
+                    b.x0, b.y0, b.x1, b.y1
+                ));
+            }
+            if let Event::PushClip { path, .. } = e {
+                let b = path.bounding_box();
+                return Some(format!("push_clip({:.1},{:.1},{:.1},{:.1})", b.x0, b.y0, b.x1, b.y1));
+            }
+            if let Event::Transform(t) = e {
+                let c = t.as_coeffs();
+                return Some(format!(
+                    "transform({:.1},{:.1},{:.1},{:.1},{:.1},{:.1})",
+                    c[0], c[1], c[2], c[3], c[4], c[5]
+                ));
+            }
+            matches!(e, Event::PopClip | Event::PushState | Event::PopState)
+                .then(|| e.name().to_string())
+        })
+        .collect()
+}
+
+/// Just the fills, in order.
+fn fills(drawn: &Recorder) -> Vec<String> {
+    calls(drawn).into_iter().filter(|e| e.starts_with("fill")).collect()
+}
+
 fn draw(bytes: Vec<u8>, refine: bool) -> Recorder {
     let options = IngestionOptions { active_refinement: refine, ..IngestionOptions::default() };
     let doc = PdfDocument::open_with_options(bytes.into(), &options).expect("the fixture opens");
-    let mut recorder = Recorder::default();
+    let mut recorder = Recorder::new();
     doc.render_page(0, &mut recorder, Affine::IDENTITY).expect("the page interprets");
     recorder
 }
@@ -142,14 +113,14 @@ fn the_forms_matrix_reaches_the_backend() {
     let plain = draw(page("", "[0 0 10 10]"), true);
     let scaled = draw(page("/Matrix [2 0 0 2 0 0]", "[0 0 10 10]"), true);
     assert!(
-        !plain.events.iter().any(|e| e.starts_with("transform(2.0")),
+        !calls(&plain).iter().any(|e| e.starts_with("transform(2.0")),
         "a form with no /Matrix concatenates none: {:?}",
-        plain.events
+        calls(&plain)
     );
     assert!(
-        scaled.events.iter().any(|e| e == "transform(2.0,0.0,0.0,2.0,0.0,0.0)"),
+        calls(&scaled).iter().any(|e| e == "transform(2.0,0.0,0.0,2.0,0.0,0.0)"),
         "the /Matrix the form declares has to reach the backend: {:?}",
-        scaled.events
+        calls(&scaled)
     );
 }
 
@@ -157,8 +128,8 @@ fn the_forms_matrix_reaches_the_backend() {
 #[test]
 fn the_forms_bbox_becomes_a_clip() {
     let r = draw(page("", "[0 0 4 4]"), true);
-    let clips: Vec<&String> = r.events.iter().filter(|e| e.starts_with("push_clip")).collect();
-    assert!(!clips.is_empty(), "a form with a /BBox has to clip to it: {:?}", r.events);
+    let clips: Vec<String> = calls(&r).into_iter().filter(|e| e.starts_with("push_clip")).collect();
+    assert!(!clips.is_empty(), "a form with a /BBox has to clip to it: {:?}", calls(&r));
     assert!(
         clips.iter().any(|c| c.contains("4.0")),
         "the clip has to be the /BBox the form declared, not another rectangle: {clips:?}"
@@ -169,7 +140,7 @@ fn the_forms_bbox_becomes_a_clip() {
 #[test]
 fn the_forms_state_does_not_escape_it() {
     let r = draw(page("", "[0 0 10 10]"), true);
-    let after = r.fills().last().copied().unwrap_or_default().to_string();
+    let after = fills(&r).last().cloned().unwrap_or_default();
     assert!(
         after.contains("0.0,0.0,1.0"),
         "the square after the form is blue; the form set red and must not have kept it: {after}"
@@ -184,7 +155,7 @@ fn the_forms_clip_is_unwound_with_it() {
         r.count("push_clip"),
         r.count("pop_clip"),
         "every clip the form pushes is popped, or what follows draws inside it: {:?}",
-        r.events
+        calls(&r)
     );
 }
 
@@ -200,7 +171,8 @@ fn both_form_implementations_produce_the_same_calls() {
     let refined = draw(bytes.clone(), true);
     let raw = draw(bytes, false);
     assert_eq!(
-        refined.events, raw.events,
+        calls(&refined),
+        calls(&raw),
         "the parsed-command path and the raw-byte path have to draw the same form"
     );
 }

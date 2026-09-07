@@ -16,59 +16,14 @@
 //! `/SMask` and `/Font` and stopped.
 
 use fepdf::PdfDocument;
-use fepdf_content::{
-    BlendMode, Color, FallbackFontType, Paint, PixelFormat, RenderBackend, SMaskData, ShadingSpec,
-    StrokeStyle, TextGlyph, TextState, WindingRule,
-};
-use fepdf_model::graphics::TextRenderingMode;
-use kurbo::{Affine, BezPath};
-use std::sync::Arc;
+use fepdf_content::StrokeStyle;
+use kurbo::Affine;
+
+pub mod recorder;
+use recorder::{Event, Recorder};
 
 mod common;
 use common::assemble;
-
-/// Every stroke the interpreter asked for, with the style it asked for it in.
-#[derive(Default)]
-struct Strokes(Vec<StrokeStyle>);
-
-impl RenderBackend for Strokes {
-    fn stroke_path(&mut self, _p: &BezPath, _c: &Color, style: &StrokeStyle) {
-        self.0.push(style.clone());
-    }
-    fn fill_path(&mut self, _p: &BezPath, _c: &Color, _r: WindingRule) {}
-    fn transform(&mut self, _t: Affine) {}
-    fn set_transform(&mut self, _t: Affine) {}
-    fn push_state(&mut self) {}
-    fn pop_state(&mut self) {}
-    fn set_fill_color(&mut self, _c: Color) {}
-    fn set_stroke_color(&mut self, _c: Color) {}
-    fn set_fill_paint(&mut self, _p: &Paint) {}
-    fn set_stroke_paint(&mut self, _p: &Paint) {}
-    fn set_fill_alpha(&mut self, _a: f64) {}
-    fn set_stroke_alpha(&mut self, _a: f64) {}
-    fn paint_shading(&mut self, _s: &ShadingSpec) {}
-    fn set_blend_mode(&mut self, _m: BlendMode) {}
-    fn draw_image(&mut self, _d: &[u8], _w: u32, _h: u32, _f: PixelFormat, _s: Option<SMaskData>) {}
-    fn push_clip(&mut self, _p: &BezPath, _r: WindingRule) {}
-    fn pop_clip(&mut self) {}
-    fn show_text(&mut self, _g: &[TextGlyph], _s: f64, _t: Affine, _ts: TextState, _o: usize) {}
-    #[allow(clippy::too_many_arguments)]
-    fn define_font(
-        &mut self,
-        _n: &str,
-        _b: Option<&str>,
-        _d: Option<Arc<Vec<u8>>>,
-        _i: Option<usize>,
-        _m: Option<std::collections::BTreeMap<u32, u32>>,
-        _f: FallbackFontType,
-        _c: bool,
-    ) {
-    }
-    fn set_font(&mut self, _n: &str) {}
-    fn set_text_render_mode(&mut self, _m: TextRenderingMode) {}
-    fn set_char_spacing(&mut self, _s: f64) {}
-    fn set_word_spacing(&mut self, _s: f64) {}
-}
 
 /// The strokes a page draws, given a content stream and one `/ExtGState` named `/G1`.
 fn strokes(content: &str, ext_g_state: &str) -> (Vec<StrokeStyle>, Vec<fepdf::Decision>) {
@@ -82,9 +37,16 @@ fn strokes(content: &str, ext_g_state: &str) -> (Vec<StrokeStyle>, Vec<fepdf::De
         ext_g_state.to_string(),
     ];
     let doc = PdfDocument::open(bytes::Bytes::from(assemble(&bodies))).expect("the fixture opens");
-    let mut backend = Strokes::default();
+    let mut backend = Recorder::new();
     doc.render_page(0, &mut backend, Affine::IDENTITY).expect("the page interprets");
-    (backend.0, doc.decisions())
+    let pens = backend
+        .events
+        .iter()
+        .filter_map(
+            |e| if let Event::Stroke { style, .. } = e { Some(style.clone()) } else { None },
+        )
+        .collect();
+    (pens, doc.decisions())
 }
 
 const LINE: &str = "10 10 m 100 100 l S";

@@ -15,74 +15,14 @@
 //! shapes; what they assert is that the text that was there is still drawn.
 
 use fepdf::{IngestionOptions, PdfDocument};
-use fepdf_content::{
-    BlendMode, Color, FallbackFontType, Paint, PixelFormat, RenderBackend, SMaskData, ShadingSpec,
-    StrokeStyle, TextGlyph, TextState, WindingRule,
-};
 use fepdf_doc::operation::{DecorationPosition, Operation, PageSelection};
-use fepdf_model::graphics::TextRenderingMode;
-use kurbo::{Affine, BezPath};
-use std::sync::Arc;
+use kurbo::Affine;
 
-/// Collects the text the page draws.
-#[derive(Default)]
-struct Text(String);
+pub mod recorder;
+use recorder::Recorder;
 
-impl RenderBackend for Text {
-    fn show_text(
-        &mut self,
-        glyphs: &[TextGlyph],
-        _size: f64,
-        _transform: Affine,
-        _state: TextState,
-        _op_index: usize,
-    ) {
-        for glyph in glyphs {
-            self.0.push_str(&glyph.unicode);
-        }
-    }
-    fn transform(&mut self, _transform: Affine) {}
-    fn set_transform(&mut self, _transform: Affine) {}
-    fn push_state(&mut self) {}
-    fn pop_state(&mut self) {}
-    fn fill_path(&mut self, _path: &BezPath, _color: &Color, _rule: WindingRule) {}
-    fn stroke_path(&mut self, _path: &BezPath, _color: &Color, _style: &StrokeStyle) {}
-    fn push_clip(&mut self, _path: &BezPath, _rule: WindingRule) {}
-    fn pop_clip(&mut self) {}
-    fn set_fill_alpha(&mut self, _alpha: f64) {}
-    fn set_stroke_alpha(&mut self, _alpha: f64) {}
-    fn set_fill_color(&mut self, _color: Color) {}
-    fn set_stroke_color(&mut self, _color: Color) {}
-    fn set_fill_paint(&mut self, _paint: &Paint) {}
-    fn set_stroke_paint(&mut self, _paint: &Paint) {}
-    fn paint_shading(&mut self, _shading: &ShadingSpec) {}
-    fn set_blend_mode(&mut self, _mode: BlendMode) {}
-    fn draw_image(
-        &mut self,
-        _image: &[u8],
-        _width: u32,
-        _height: u32,
-        _format: PixelFormat,
-        _smask: Option<SMaskData>,
-    ) {
-    }
-    #[allow(clippy::too_many_arguments)]
-    fn define_font(
-        &mut self,
-        _name: &str,
-        _base_name: Option<&str>,
-        _data: Option<Arc<Vec<u8>>>,
-        _index: Option<usize>,
-        _cid_to_gid_map: Option<std::collections::BTreeMap<u32, u32>>,
-        _fallback_type: FallbackFontType,
-        _is_cid_keyed: bool,
-    ) {
-    }
-    fn set_font(&mut self, _name: &str) {}
-    fn set_text_render_mode(&mut self, _mode: TextRenderingMode) {}
-    fn set_char_spacing(&mut self, _spacing: f64) {}
-    fn set_word_spacing(&mut self, _spacing: f64) {}
-}
+mod common;
+use common::assemble;
 
 /// A one-page file drawing `ORIGINAL`, with its resources placed by `resources_on_page`
 /// and `resources_on_tree` — the two ways 7.7.3.4 lets a page reach them.
@@ -99,23 +39,7 @@ fn page_drawing_original(resources_on_page: &str, resources_on_tree: &str) -> Ve
         "<< /Font << /F1 6 0 R >> >>".to_string(),
         "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
     ];
-    let mut out = b"%PDF-2.0\n".to_vec();
-    let mut offsets = Vec::new();
-    for (i, body) in bodies.iter().enumerate() {
-        offsets.push(out.len());
-        out.extend_from_slice(format!("{} 0 obj\n{body}\nendobj\n", i + 1).as_bytes());
-    }
-    let table_at = out.len();
-    let size = bodies.len() + 1;
-    out.extend_from_slice(format!("xref\n0 {size}\n0000000000 65535 f \n").as_bytes());
-    for offset in &offsets {
-        out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
-    }
-    out.extend_from_slice(
-        format!("trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{table_at}\n%%EOF\n")
-            .as_bytes(),
-    );
-    out
+    assemble(&bodies)
 }
 
 /// Decorates page 1 and reports the text the page then draws.
@@ -129,9 +53,9 @@ fn text_after_decorating(file: Vec<u8>) -> String {
         layer: None,
     })
     .expect("the decoration applies");
-    let mut text = Text::default();
+    let mut text = Recorder::new();
     doc.render_page(0, &mut text, Affine::IDENTITY).expect("the page interprets");
-    text.0
+    text.text()
 }
 
 #[test]
