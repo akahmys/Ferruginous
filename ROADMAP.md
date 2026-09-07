@@ -2760,6 +2760,147 @@ Everything here was carried in a handoff note as a one-line hunch. Each is now a
       multi-line, and cross-collection text extraction directly from Type0 and CIDFont
       documents against Adobe's character collections.
 
+## Phase U — The work that stops at no crate boundary
+
+The crate-by-crate pass over all thirteen crates and `crates/fepdf/tests/` is done. What
+it could not take is here, because each item spans crates by construction. Every figure
+below is re-derived on 2026-09-08 and the command that derives it sits beside it.
+
+The order is not free. **The two gate items come first** — a large refactor under a gate
+that cannot see part of the code puts violations in without saying so — and the parser
+twin comes last, because everything above it strengthens the net that work needs.
+
+- [ ] **Rule 1 does not see `pub(crate) fn`.** Its `awk` detector matches
+      `^[[:space:]]*(pub )?(async )?fn `, and `pub(crate) fn` does not match `(pub )?`.
+      **86 functions across the workspace are invisible to the length limit, and 8 exceed
+      it**:
+
+      | effective lines | limit | function |
+      | ---: | ---: | :--- |
+      | 232 | 200 | `fepdf-gui` `render_status_bar` |
+      | 163 | 50 | `fepdf-content` `render_image_xobject` |
+      | 87 | 50 | `fepdf-content` `handle_text_command` |
+      | 79 | 50 | `fepdf-content` `parse_shading_object` |
+      | 78 | 50 | `fepdf-content` `handle_state_operator` |
+      | 63 | 50 | `fepdf-content` `map_text_to_glyphs` |
+      | 61 | 50 | `fepdf-content` `show_text` |
+      | 57 | 50 | `fepdf-content` `handle_xobject_operator` |
+
+      ```text
+      grep -rn "pub(crate) fn " crates/*/src --include='*.rs' | wc -l
+      ```
+
+      Three of them are dispatchers and `// RR-15 Limit: Dispatcher` is what that marker
+      is for; four are not and need splitting; `render_status_bar` passes even the GUI
+      limit of 200 and needs one or the other decided on its own. **Correcting the regex
+      alone turns the audit red immediately**, so it lands in the same commit as the
+      eight. Seven of the eight are in `fepdf-content`, which is where the blind spot was
+      widest.
+
+      *Done when*: the detector matches `pub(crate)` and `verify_compliance.sh` ends
+      `=== AUDIT PASSED ===`; each marker added says in one line why that function
+      dispatches.
+
+- [ ] **`scripts/audit/silent_branches.py` is measured and gated by nothing.** It reports
+      **0 silent wildcard arms over a numeric domain value**, with 11 recorded by their
+      callers instead, and exits 0 — so this is configuration rather than repair. It is
+      the same shape Rules A and D were in before they moved into
+      `scripts/audit/layering.py`: a check that runs and decides nothing.
+
+      ```text
+      python3 scripts/audit/silent_branches.py; echo $?
+      ```
+
+      *Done when*: `verify_compliance.sh` runs it and `status.sh` reports what it returns
+      rather than deriving the number a second time.
+
+- [ ] **A PDF is assembled by hand in 19 files.** `crates/*/src` carries **29 occurrences
+      across 13 files**, `crates/*/examples` six more; `crates/fepdf/tests/` is down to
+      three, each of which says why in `crates/fepdf/tests/common/mod.rs`. The largest
+      single instance is `crates/fepdf-model/src/font/mod.rs`, whose **12 tests occupy
+      3,086 of its 3,412 lines** — about 257 lines of fixture per test.
+
+      ```text
+      grep -rc "0000000000 65535 f" crates/*/src crates/*/examples --include='*.rs'
+      awk '/#\[cfg\(test\)\]/{print NR; exit}' crates/fepdf-model/src/font/mod.rs
+      ```
+
+      Two constraints shape the answer, and both were paid for:
+
+      - **It cannot depend on `fepdf`.** A fixture the writer produces cannot catch a
+        writer defect, and a test that builds its own bytes says in its own body what the
+        reader is being given.
+      - **It must carry `Vec<u8>`, not `String`.** The `String` signature is why
+        `image_sample_count_test.rs` and `smask_in_data_test.rs` could not be folded in —
+        raw sample bytes and a JPX codestream do not survive it.
+
+      A dev-dependency crate satisfying both is also where `crates/fepdf/tests/recorder/mod.rs`
+      belongs, which is what folds in the last hand-written `RenderBackend` in
+      `crates/fepdf/examples/glyph_loss.rs` — an example cannot declare a module under
+      `tests/`. Adding a crate to the workspace is a structural decision and takes an ADR;
+      the two constraints above are what it records.
+
+      *Done when*: `grep -rl "0000000000 65535 f" crates/*/src` is empty, and the only
+      `impl RenderBackend` outside the engine is the one in the new crate.
+
+- [ ] **`fepdf-mcp` links a GPU stack.** `fepdf = { workspace = true, features = ["render"] }`
+      is the sentence [Rule B](CODING.md) uses as its own example. Noted as out of scope
+      in [ADR-0082](docs/adr/0082-the-script-crate-is-a-library-the-frontends-call.md).
+
+      ```text
+      grep -n "features" crates/fepdf-mcp/Cargo.toml
+      ```
+
+      *Done when*: which MCP tools need `render` is measured first, and the feature is
+      split or dropped on that evidence rather than on the guess that none do.
+
+- [ ] **Two content-stream parsers.** `crates/fepdf-model/src/object/sublimation/parser.rs`
+      is 836 lines and `crates/fepdf-content/src/interpreter/` is 3,892; the code itself
+      calls the second the twin of the first. The duplication is semantic rather than
+      textual, so the block scanner sees one shared block and the rest is invisible to it.
+
+      ```text
+      wc -l crates/fepdf-model/src/object/sublimation/parser.rs
+      find crates/fepdf-content/src/interpreter -name '*.rs' | xargs wc -l | tail -1
+      ```
+
+      **This is the one item here that can go wrong quietly**, and it is last for that
+      reason. The two form-XObject paths were the same shape at a tenth of the size, and
+      the test that caught them disagreeing was written before either was touched.
+
+      *Done when*: a characterisation test shows the two reach the same conclusion on the
+      same input — the shape of `both_form_implementations_produce_the_same_calls` — and
+      it exists **before** any merging starts.
+
+- [ ] **`TESTING.md` quotes a test count from a run two phases old.** Lines 34 and 41 say
+      **754 tests**; `cargo test --workspace` reports **800**, and the timings in that
+      table come from the same stale run. `status.sh` does not re-derive either, which is
+      why neither reads as a disagreement today. Every `expect 0` figure it *does* derive
+      read 0 on 2026-09-08, so that sweep is finished.
+
+      ```text
+      cargo test --workspace 2>&1 | grep -oE 'test result: ok\. [0-9]+' \
+        | grep -oE '[0-9]+' | awk '{s+=$1} END{print s}'
+      ```
+
+      *Done when*: the count and the timings come from one run, dated, and the table says
+      which.
+
+- [ ] **The MCP prompt surface describes tools that do not exist and omits what two of
+      them now do.** `crates/fepdf-mcp/src/prompts.rs:11` names `get_structure_tree`, a
+      tool that has never existed in any commit. `set_form_field_value` and
+      `apply_operation` do not say in their descriptions that they now execute the
+      document's ECMAScript, which they have since [Phase R](#phase-r--running-the-documents-code)
+      was wired. 35 of 36 tool descriptions are one sentence with no statement of when not
+      to reach for them.
+
+      ```text
+      git log --all -S "fn get_structure_tree" --oneline | wc -l   # 0
+      ```
+
+      *Done when*: every tool a prompt names resolves to one the server registers, checked
+      rather than read.
+
 ## Read broadly, write 2.0
 
 The seven capabilities this section used to list as open questions divide on one line,
