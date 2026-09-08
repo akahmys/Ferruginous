@@ -279,7 +279,7 @@ sign_check() {
     # And the signature it just wrote still verifies to itself.
     local verdict
     verdict=$(target/release/fepdf publish verify-signature "$out" 2>&1 || true)
-    if ! printf '%s' "$verdict" | grep -q ": verifies"; then
+    if ! grep -q ": verifies" <<<"$verdict"; then
         echo "  $(basename "$src" .pdf) [$label]: THE SIGNATURE IT WROTE DOES NOT VERIFY"
         FAILED=1; return
     fi

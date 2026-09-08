@@ -12,8 +12,9 @@ impl Interpreter<'_> {
     /// Dispatches a normalized text command to the appropriate operator handler.
     pub(crate) fn handle_text_command(&mut self, cmd: &Command) -> PdfResult<()> {
         // RR-15 Limit: Dispatcher - one arm per `Command` a text object can carry, each
-        // pushing that command's operands and calling the handler the raw-byte path calls
-        // for the same operator. The two paths agreeing is what this shape is for.
+        // pushing that command's operands and calling the handler for that operator.
+        // Bytes reach here the same way, by being sublimated first, so this is the only
+        // place a text operator is acted on.
         match cmd {
             Command::BeginText => self.handle_text_scope_operator("BT"),
             Command::EndText => self.handle_text_scope_operator("ET"),

@@ -29,9 +29,9 @@ All crates in the workspace MUST maintain high test coverage for core data struc
 cargo test --workspace
 ```
 
-**Where the time goes, re-measured 2026-09-08 — one machine, nothing else running, three
-consecutive runs of each form.** A run with nothing to rebuild is **29 to 32 seconds** and
-reports **800 tests**. Derive both from one run:
+**Where the time goes, re-measured 2026-09-09 — one machine, nothing else running, three
+consecutive runs of each form.** A run with nothing to rebuild is **44 to 49 seconds** and
+reports **814 tests**. Derive both from one run:
 
 ```bash
 time cargo test --workspace 2>&1 | grep -oE 'test result: ok\. [0-9]+' \
@@ -41,20 +41,30 @@ time cargo test --workspace 2>&1 | grep -oE 'test result: ok\. [0-9]+' \
 **This paragraph used to say 1m 57s for 591 tests, and to recommend a shorter form on the
 strength of it.** Both halves stopped being true:
 
-| | measured 2026-08-30 | measured 2026-09-08 |
+| | measured 2026-08-30 | measured 2026-09-09 |
 | :--- | ---: | ---: |
-| `cargo test --workspace` | 1m 57s, 591 tests | **28.8–31.6s, 800 tests** |
-| `cargo test --workspace --lib --bins --tests` | 1m 31s | 25.4–31.5s, 800 tests |
+| `cargo test --workspace` | 1m 57s, 591 tests | **44.5–48.8s, 814 tests** |
+| `cargo test --workspace --lib --bins --tests` | 1m 31s | 41.2–47.9s, 814 tests |
 | the difference — the doc-test phase | **26s, a fifth of the run** | **within run-to-run noise** |
 
-209 more tests in a quarter of the time, and the two halves of that have different causes.
-**The quarter** is [ADR-0074](docs/adr/0074-the-reader-copied-the-file-once-per-object.md)
-(the reader copied the file once per object),
-[ADR-0075](docs/adr/0075-two-costs-a-caller-never-asked-for.md) (the arena maintained a
-reverse index nothing queried) and
+223 more tests, and the quarter has become **38% of what 591 tests cost** — 1m 57s to 45s
+— because **one test is a third of the run**. `crates/fepdf/tests/parser_twin_test.rs`
+opens each sample twice, refined and not, to hold the two content-stream readers to the
+same conclusions, and takes 14.6 seconds of the 45. It was 46 until the two largest samples were left out of it: measured, they were
+nine tenths of its cost and caught none of the three defects it has found, and both are
+compared page for page against PDFKit by `crosscheck_reading_order.sh` instead.
+
+**The cost is the debug build, not the work.** The same nine documents open twice in 5.4
+seconds under `--release`. A `[profile.dev.package]` tuning would recover most of that and
+has not been taken, because it trades a slower first build for every contributor.
+
+**What made the suite fast in the first place is unchanged**, and is the whole of why 814
+tests cost less than half what 591 did:
+[ADR-0074](docs/adr/0074-the-reader-copied-the-file-once-per-object.md) (the reader copied
+the file once per object), [ADR-0075](docs/adr/0075-two-costs-a-caller-never-asked-for.md)
+(the arena maintained a reverse index nothing queried) and
 [ADR-0076](docs/adr/0076-what-the-arena-compresses-and-what-that-was-costing.md)
-(compression level) — the suite opens documents, so it inherited all three. **The tests**
-are the phases since, which those three did nothing to add.
+(compression level). The suite opens documents, so it inherited all three.
 
 **Both forms now report the same 800**, which is the doc-test phase saying in a second way
 what the paragraph below says: it runs no examples, so it counts none. The short form's
@@ -233,9 +243,22 @@ python3 scripts/visual_regression.py --update
 | `crosscheck_signature.sh` | `openssl cms -verify` and `publish verify-signature` agree. Needs `openssl` | The engine's own test says a signature matches the digest the engine computed — the byte range and the digest are both its own work |
 | `crosscheck_encryption.sh` | PDFKit opens what this engine encrypted, per-page text | Found the writer emitting an unescaped `\r` in literal strings and the lexer reading one back unchanged: two mistakes that cancelled |
 | `crosscheck_objstm.sh` | PDFKit reads packed object streams | |
-| `crosscheck_pubsec.sh` | Certificate-encrypted documents | |
+| `crosscheck_pubsec.sh` | Certificate-encrypted documents | Reported IT OPENED WITHOUT A CERTIFICATE about an engine that had refused, for one run in 2026-09-09 — see the note below on `grep -q` |
 | `crosscheck_reading_order.sh` | Whether the two readers put the same characters in the same *order*, per page, per file | A net figure hides a file. ADR-0047's sort took the corpus from 261 agreeing pages to 1,975 while `volvo_xc90.pdf` went from 61 to **0** and `bokutokitan.pdf` from 93 to 4, and nothing said so. Each file carries a floor it may not fall below and the best it has ever read; a file under its best is printed on every run without turning the suite red |
 | `crosscheck_selfread.sh` | This engine reads back what it wrote, 21 combinations of packing, encryption and signing | The only one needing no second implementation, and so the only one that can answer "can it read what it just wrote". Also compares the catalogue key by key and the named destinations, which a byte comparison cannot |
+
+**A check that cries wolf is worse than one that is missing**, and these scripts had nine
+ways to do it. `printf '%s' "$out" | grep -q PATTERN` under `set -o pipefail` reports 141:
+`grep -q` exits at the first match, the writer dies of SIGPIPE, and the pipeline's status
+is the writer's. It fires only when the output is long enough that the writer has not
+finished, so it arrives with a document that got wordier rather than with the change that
+introduced it. On 2026-09-09 `crosscheck_pubsec.sh` printed **IT OPENED WITHOUT A
+CERTIFICATE** and **A STRANGER'S CERTIFICATE OPENED THE DOCUMENT** about an engine whose
+refusal was correct, and whose refusal message had grown to 538 lines of decisions.
+
+Use a herestring — `grep -q PATTERN <<<"$out"` — and there is no pipe to break. All nine
+sites do, across `cli_smoke.sh`, `measure_external_corpus.sh`, `crosscheck_pubsec.sh`,
+`crosscheck_selfread.sh` and `crosscheck_signature.sh`.
 
 **Corpus and measurement:**
 

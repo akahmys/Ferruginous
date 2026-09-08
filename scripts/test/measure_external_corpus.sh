@@ -41,7 +41,7 @@ for f in "$CORPUS"/*/*.pdf; do
     # it, and on deliberately malformed input only the second is a defect on its face.
     if out=$("$BIN" inspect info "$f" 2>&1); then
         opened=$((opened + 1))
-    elif printf '%s' "$out" | grep -q "panicked at"; then
+    elif grep -q "panicked at" <<<"$out"; then
         panicked=$((panicked + 1))
         printf '%s\n    %s\n' "$name" \
             "$(printf '%s' "$out" | grep -m1 'panicked at' | cut -c1-120)" >> "$WORK/panics"

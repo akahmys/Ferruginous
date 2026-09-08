@@ -102,8 +102,19 @@ if [ -f "$WORK/sample/cert.der" ]; then
     # and a refusal exits non-zero by design — so the pipeline failed even when grep
     # found what it was looking for. That is the same trap that made this script blame
     # its own fixture builder for fy05.
+    #
+    # **And a herestring, not `printf | grep -q`, which is the same trap once more.**
+    # `grep -q` exits at the first match; under `pipefail` the writer then dies of
+    # SIGPIPE and the pipeline reports 141, so a check that *passed* is read as failed.
+    # It fires only when the output is long enough that the writer has not finished — on
+    # 2026-09-09 this file printed IT OPENED WITHOUT A CERTIFICATE and A STRANGER'S
+    # CERTIFICATE OPENED THE DOCUMENT about an engine that had refused both, because the
+    # refusal now carries 538 lines of decisions with it. Proved by putting the pipe back
+    # and watching the false alarm return. Eight more sites had the same shape, across
+    # `cli_smoke.sh`, `measure_external_corpus.sh`, `crosscheck_selfread.sh` and
+    # `crosscheck_signature.sh`; all nine take a herestring now.
     said=$(target/release/fepdf inspect text "$WORK/written.pdf" 2>&1 || true)
-    if printf '%s' "$said" | grep -q "was not unlocked"; then
+    if grep -q "was not unlocked" <<<"$said"; then
         echo "  (--encrypt-to output refuses to open without one, and says why)"
     else
         echo "  THE WRITTEN DOCUMENT OPENED WITHOUT A CERTIFICATE"; FAILED=1
@@ -114,7 +125,7 @@ fi
 # addressed to is not encrypted, and one that opens with the wrong key is worse.
 if [ "$FAILED" -eq 0 ]; then
     said=$(target/release/fepdf inspect text "$WORK/sample/pubsec.pdf" 2>&1 || true)
-    if printf '%s' "$said" | grep -q "7.6.5 : the document is encrypted to a certificate"; then
+    if grep -q "7.6.5 : the document is encrypted to a certificate" <<<"$said"; then
         echo "  (with no certificate: refused, and says which kind it wanted)"
     else
         echo "  IT OPENED WITHOUT A CERTIFICATE"; FAILED=1
@@ -128,7 +139,7 @@ if [ "$FAILED" -eq 0 ]; then
     said=$(target/release/fepdf inspect text "$WORK/sample/pubsec.pdf" \
         --recipient-certificate "$WORK/other.cert.der" \
         --recipient-key "$WORK/other.key.der" 2>&1 || true)
-    if printf '%s' "$said" | grep -q "7.6.1 :.*could not be unlocked"; then
+    if grep -q "7.6.1 :.*could not be unlocked" <<<"$said"; then
         echo "  (a certificate it was not addressed to: refused)"
     else
         echo "  A STRANGER'S CERTIFICATE OPENED THE DOCUMENT"; FAILED=1

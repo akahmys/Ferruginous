@@ -178,7 +178,20 @@ fn the_two_readers_agree_on_clipping_and_marked_content() {
     );
 }
 
-/// The nine samples, which is where an operator this file did not think of lives.
+/// Two files this comparison does not open, and what that costs.
+///
+/// **A cost decision, measured rather than assumed.** Opening a document twice — once
+/// refined, once not — is what this test pays for, and in a debug build these two are
+/// nine tenths of it: with them the binary runs in 46 seconds and without them in 4.3.
+/// Re-introducing the `/Filter` defect this test was written for is still caught without
+/// them, by `fugaku.pdf`, so the ninety per cent bought no detection of anything this has
+/// found. Both are compared page for page against PDFKit by
+/// `scripts/test/crosscheck_reading_order.sh`, which is where their size earns its keep.
+///
+/// Deleting these two names is how to put them back.
+const TOO_SLOW_IN_A_DEBUG_BUILD: [&str; 2] = ["intel_sdm.pdf", "fy05.pdf"];
+
+/// The samples, which is where an operator this file did not think of lives.
 #[test]
 fn the_two_readers_agree_on_the_sample_corpus() {
     let mut checked = 0;
@@ -187,8 +200,12 @@ fn the_two_readers_agree_on_the_sample_corpus() {
         if path.extension().and_then(|e| e.to_str()) != Some("pdf") {
             continue;
         }
+        let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_string();
+        if TOO_SLOW_IN_A_DEBUG_BUILD.contains(&file_name.as_str()) {
+            continue;
+        }
         let bytes = std::fs::read(&path).expect("the sample reads");
-        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("?").to_string();
+        let name = file_name;
 
         eprintln!("--- {name} refined");
         let refined = draw(bytes.clone(), true);
@@ -209,5 +226,5 @@ fn the_two_readers_agree_on_the_sample_corpus() {
         }
         checked += 1;
     }
-    assert!(checked >= 9, "only {checked} samples were checked");
+    assert!(checked >= 7, "only {checked} samples were checked");
 }

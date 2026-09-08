@@ -59,11 +59,11 @@ while IFS= read -r command; do
     # shellcheck disable=SC2086
     output=$("$cli" $command --help 2>&1)
     checked=$((checked + 1))
-    if printf '%s' "$output" | grep -q "panicked at"; then
+    if grep -q "panicked at" <<<"$output"; then
         printf 'PANIC   fepdf %s\n' "${command:-<root>}"
         printf '%s\n' "$output" | grep -m1 -A1 "panicked at" | sed 's/^/        /'
         status=1
-    elif printf '%s' "$output" | grep -qi "^error:"; then
+    elif grep -qi "^error:" <<<"$output"; then
         printf 'ERROR   fepdf %s\n' "${command:-<root>}"
         status=1
     fi

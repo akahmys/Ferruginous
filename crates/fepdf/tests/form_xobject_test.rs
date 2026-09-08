@@ -2,14 +2,16 @@
 //!
 //! `/Do` on a form pushes the graphics state, concatenates `/Matrix`, clips to `/BBox`
 //! (8.10.1), runs the form's content, unwinds the clip and restores the state. That
-//! sequence stands twice in `fepdf-content`: `execute_form_commands` takes the content as
-//! parsed `Command`s and `render_form_xobject` takes it as raw bytes, and 66 of their 70
-//! lines are identical. Which one runs is decided by whether ingestion refined the stream,
-//! not by anything about the form.
+//! That sequence stood **twice** in `fepdf-content` when these were written:
+//! `execute_form_commands` took the content as parsed `Command`s and `render_form_xobject`
+//! as raw bytes, and 66 of their 70 lines were identical. Nothing checked either, and
+//! nothing checked that they agreed. These five held the contract while it was written
+//! once, in `in_form_frame`.
 //!
-//! **Nothing checked either, and nothing checked that they agree.** These five hold the
-//! contract before it is written once; the fifth is the premise the consolidation rests
-//! on, and it is the one the crate had no way to state.
+//! **They still guard a fork, and a smaller one.** The two entry points remain, because a
+//! form's stream arrives either already refined or not; the bytes are sublimated on the
+//! way in now, so both reach the same `Command`s and the same ceremony.
+//! `crates/fepdf/tests/parser_twin_test.rs` is the general form of the fifth test here.
 
 use fepdf::PdfDocument;
 use fepdf_content::Color;
