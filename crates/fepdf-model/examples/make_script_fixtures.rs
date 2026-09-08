@@ -16,8 +16,6 @@
 //! cargo run --example make_script_fixtures -p fepdf-model
 //! ```
 
-use std::fmt::Write as _;
-
 fn main() -> std::io::Result<()> {
     std::fs::create_dir_all("target/scripts")?;
 
@@ -110,22 +108,7 @@ fn write(stem: &str, fields: &[String], order: &[&str], what: &str) -> std::io::
     ];
     bodies.extend_from_slice(fields);
 
-    let mut out = b"%PDF-2.0\n".to_vec();
-    let mut offsets = Vec::new();
-    for (i, body) in bodies.iter().enumerate() {
-        offsets.push(out.len());
-        out.extend_from_slice(format!("{} 0 obj\n{body}\nendobj\n", i + 1).as_bytes());
-    }
-    let table_at = out.len();
-    let size = bodies.len() + 1;
-    let mut trailer = String::new();
-    let _ = write!(trailer, "xref\n0 {size}\n0000000000 65535 f \n");
-    for offset in &offsets {
-        let _ = writeln!(trailer, "{offset:010} 00000 n ");
-    }
-    let _ =
-        write!(trailer, "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{table_at}\n%%EOF\n");
-    out.extend_from_slice(trailer.as_bytes());
+    let out = fepdf_fixtures::assemble(&bodies);
 
     let path = format!("target/scripts/{stem}.pdf");
     std::fs::write(&path, &out)?;

@@ -16,9 +16,8 @@
 //! arm away, and a clause the engine parses and does not report is a coverage figure
 //! that understates itself.
 
-mod common;
-use common::assemble;
 use fepdf::PdfDocument;
+use fepdf_fixtures::assemble;
 
 fn clauses_for(font: &str) -> Vec<String> {
     let doc = PdfDocument::open(bytes::Bytes::from(assemble(&[

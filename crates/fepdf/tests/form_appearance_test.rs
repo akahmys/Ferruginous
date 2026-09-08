@@ -13,11 +13,9 @@ use fepdf_doc::operation::Operation;
 use fepdf_model::document::extensions::{FormFieldSpec, FormValue};
 use kurbo::Affine;
 
-pub mod recorder;
-use recorder::{Event, Recorder};
+use fepdf_fixtures::recorder::{Event, Recorder};
 
-mod common;
-use common::assemble;
+use fepdf_fixtures::assemble;
 
 /// A one-page form with one text field, its widget on the page, and Helvetica in `/DR`.
 fn form(extra_acro: &str, quadding: i64) -> Vec<u8> {

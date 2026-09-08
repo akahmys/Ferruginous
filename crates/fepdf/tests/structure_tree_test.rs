@@ -17,8 +17,7 @@
 
 use fepdf::PdfDocument;
 
-mod common;
-use common::assemble;
+use fepdf_fixtures::assemble;
 
 fn tagged_document() -> PdfDocument {
     let objects = [
@@ -30,8 +29,7 @@ fn tagged_document() -> PdfDocument {
         "<< /Type /StructElem /S /H1 /P 5 0 R /Pg 3 0 R >>",
         "<< /Type /StructElem /S /Figure /P 5 0 R /Pg 3 0 R /Alt (a photograph) >>",
     ];
-    PdfDocument::open(bytes::Bytes::from(assemble(&objects.map(String::from))))
-        .expect("the fixture opens")
+    PdfDocument::open(bytes::Bytes::from(assemble(&objects))).expect("the fixture opens")
 }
 
 /// The tree it prints is the tree the document carries.
@@ -84,8 +82,7 @@ fn an_untagged_document_says_it_has_none() {
         "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
         "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
     ];
-    let doc = PdfDocument::open(bytes::Bytes::from(assemble(&objects.map(String::from))))
-        .expect("the fixture opens");
+    let doc = PdfDocument::open(bytes::Bytes::from(assemble(&objects))).expect("the fixture opens");
 
     let printed = doc.print_structure().expect("it prints");
     assert!(printed.to_lowercase().contains("no logical structure"), "{printed}");

@@ -9,8 +9,7 @@
 use fepdf::PdfDocument;
 use fepdf_script::{DocumentHandle, ScriptEnvironment, ScriptHost};
 
-mod common;
-use common::assemble;
+use fepdf_fixtures::assemble;
 
 /// A form with `a = 2`, `b = 3` and an empty `total`.
 fn form() -> DocumentHandle {

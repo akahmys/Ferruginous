@@ -11,11 +11,9 @@
 use fepdf::{LayerPanel, LayerRow, PdfDocument};
 use kurbo::Affine;
 
-pub mod recorder;
-use recorder::Recorder;
+use fepdf_fixtures::recorder::Recorder;
 
-mod common;
-use common::assemble;
+use fepdf_fixtures::assemble;
 
 /// One page: a square in the top-left under `/OC`, and one in the bottom-right under
 /// nothing, so every assertion says both what was hidden and what survived.

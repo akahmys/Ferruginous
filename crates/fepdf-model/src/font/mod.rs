@@ -3140,24 +3140,10 @@ mod substitution {
     use super::{FallbackFontType, FontResource};
     use crate::Document;
     use crate::ingest::IngestionOptions;
-    use std::fmt::Write as _;
 
     fn assemble(objects: &[String]) -> bytes::Bytes {
-        let mut out = String::from("%PDF-2.0\n");
-        let mut offsets = Vec::new();
-        for (index, body) in objects.iter().enumerate() {
-            offsets.push(out.len());
-            let _ = write!(out, "{} 0 obj\n{body}\nendobj\n", index + 1);
-        }
-        let table_at = out.len();
-        let size = objects.len() + 1;
-        let _ = write!(out, "xref\n0 {size}\n0000000000 65535 f \n");
-        for offset in &offsets {
-            let _ = writeln!(out, "{offset:010} 00000 n ");
-        }
-        let _ =
-            write!(out, "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{table_at}\n%%EOF\n");
-        bytes::Bytes::from(out.into_bytes())
+        let out = fepdf_fixtures::assemble(objects);
+        bytes::Bytes::from(out)
     }
 
     /// A one-page document whose only font is `font`, at object 5.
@@ -3283,7 +3269,6 @@ mod descendant_fonts {
     /// detector looked for `/Kids`, `/K` and `/Next`, and this walk names none of them.
     #[test]
     fn a_font_that_descends_from_itself_is_not_followed_forever() {
-        use std::fmt::Write as _;
         let objects = [
             "<< /Type /Catalog /Pages 2 0 R >>",
             "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
@@ -3293,24 +3278,10 @@ mod descendant_fonts {
             "<< /Type /Font /Subtype /Type0 /BaseFont /X /Encoding /Identity-H \
               /DescendantFonts [5 0 R] >>",
         ];
-        let mut out = String::from("%PDF-2.0\n");
-        let mut offsets = Vec::new();
-        for (index, body) in objects.iter().enumerate() {
-            offsets.push(out.len());
-            let _ = write!(out, "{} 0 obj\n{body}\nendobj\n", index + 1);
-        }
-        let table_at = out.len();
-        let size = objects.len() + 1;
-        let _ = write!(out, "xref\n0 {size}\n0000000000 65535 f \n");
-        for offset in &offsets {
-            let _ = writeln!(out, "{offset:010} 00000 n ");
-        }
-        let _ =
-            write!(out, "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{table_at}\n%%EOF\n");
+        let out = fepdf_fixtures::assemble(&objects);
 
-        let doc =
-            Document::open(bytes::Bytes::from(out.into_bytes()), &IngestionOptions::default())
-                .expect("the fixture opens");
+        let doc = Document::open(bytes::Bytes::from(out), &IngestionOptions::default())
+            .expect("the fixture opens");
         let fonts = doc.fonts();
 
         assert!(!fonts.is_empty(), "the font is surveyed rather than skipped");

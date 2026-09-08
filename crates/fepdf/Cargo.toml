@@ -41,6 +41,10 @@ tokio.workspace = true
 # and leaves the choice of backend to whoever links it, which is the whole point of the
 # `log` facade and the opposite of shipping one.
 env_logger.workspace = true
+# The hand-written PDFs and the one `RenderBackend` this crate's tests and examples share.
+# `backend` is what lets `examples/glyph_loss.rs` reach the recorder, which a module under
+# `tests/` could not be.
+fepdf-fixtures = { workspace = true, features = ["backend"] }
 
 [features]
 default = []

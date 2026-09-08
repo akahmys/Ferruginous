@@ -16,11 +16,9 @@ use fepdf_content::Color;
 use fepdf_model::ingest::IngestionOptions;
 use kurbo::{Affine, Shape};
 
-pub mod recorder;
-use recorder::{Event, Recorder};
+use fepdf_fixtures::recorder::{Event, Recorder};
 
-mod common;
-use common::assemble;
+use fepdf_fixtures::assemble;
 
 /// A page drawing one form through `/Do`, and one rectangle after it.
 ///

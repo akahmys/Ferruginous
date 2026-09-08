@@ -61,21 +61,5 @@ fn page(resources: &str, content: &str, extra: &str) -> Vec<u8> {
         extra.to_string(),
     ];
 
-    let mut out = b"%PDF-2.0\n".to_vec();
-    let mut offsets = Vec::new();
-    for (i, body) in bodies.iter().enumerate() {
-        offsets.push(out.len());
-        out.extend_from_slice(format!("{} 0 obj\n{body}\nendobj\n", i + 1).as_bytes());
-    }
-    let table_at = out.len();
-    let count = bodies.len() + 1;
-    let mut trailer = String::new();
-    let _ = write!(trailer, "xref\n0 {count}\n0000000000 65535 f \n");
-    for offset in &offsets {
-        let _ = writeln!(trailer, "{offset:010} 00000 n ");
-    }
-    let _ =
-        write!(trailer, "trailer\n<< /Size {count} /Root 1 0 R >>\nstartxref\n{table_at}\n%%EOF\n");
-    out.extend_from_slice(trailer.as_bytes());
-    out
+    fepdf_fixtures::assemble(&bodies)
 }

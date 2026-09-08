@@ -2828,34 +2828,36 @@ twin comes last, because everything above it strengthens the net that work needs
       Proved by exempting a function that does not exist and watching the step fail.
       `CODING.md`'s Rule 20 row and `AUDITING.md`'s step table say which half is gated.
 
-- [ ] **A PDF is assembled by hand in 19 files.** `crates/*/src` carries **29 occurrences
-      across 13 files**, `crates/*/examples` six more; `crates/fepdf/tests/` is down to
-      three, each of which says why in `crates/fepdf/tests/common/mod.rs`. The largest
-      single instance is `crates/fepdf-model/src/font/mod.rs`, whose **12 tests occupy
-      3,086 of its 3,412 lines** — about 257 lines of fixture per test.
+- [x] **A PDF was assembled by hand in nineteen files.** `crates/*/src` carried 29
+      occurrences across 13 files and `crates/*/examples` six more, on top of the three
+      `tests/common/mod.rs` each crate had consolidated separately. **Six of the 29 were
+      not fixtures at all** — `fepdf/src/lib.rs` holds the static empty document
+      `create_empty` returns, and `fepdf-model/src/writer.rs` writes tables because that
+      is its job. This entry counted both as duplication and neither was.
 
-      ```text
-      grep -rc "0000000000 65535 f" crates/*/src crates/*/examples --include='*.rs'
-      awk '/#\[cfg\(test\)\]/{print NR; exit}' crates/fepdf-model/src/font/mod.rs
-      ```
+      `crates/fepdf-fixtures` is the answer, recorded in
+      [ADR-0083](docs/adr/0083-a-fixture-crate-that-depends-on-nothing.md). Default
+      features pull in nothing, which is what lets `fepdf-model` — the crate with the most
+      fixtures — dev-depend on it without taking a stack that sits above it.
 
-      Two constraints shape the answer, and both were paid for:
+      **The `String` signature was the defect, not a boundary.** This entry recorded
+      `image_sample_count_test.rs` and `smask_in_data_test.rs` as legitimate exceptions
+      because raw samples and a JPX codestream do not survive a `String`. They are not
+      exceptions; the signature was wrong. Bodies are `AsRef<[u8]>` now and both are
+      ordinary callers, as are the two fixture-generating examples that had each written
+      their own interleaving loop.
 
-      - **It cannot depend on `fepdf`.** A fixture the writer produces cannot catch a
-        writer defect, and a test that builds its own bytes says in its own body what the
-        reader is being given.
-      - **It must carry `Vec<u8>`, not `String`.** The `String` signature is why
-        `image_sample_count_test.rs` and `smask_in_data_test.rs` could not be folded in —
-        raw sample bytes and a JPX codestream do not survive it.
+      What still writes its own table is what is *about* the table: `fepdf-syntax/src/xref.rs`
+      (subsections and malformed tables), `fepdf-model/src/reader.rs` (object streams),
+      `fepdf-model/src/file_structure.rs` (two revisions) and
+      `fepdf-model/tests/xref_recovery_tests.rs` (recovery). An assembler that got the
+      table right for those would remove what they check.
 
-      A dev-dependency crate satisfying both is also where `crates/fepdf/tests/recorder/mod.rs`
-      belongs, which is what folds in the last hand-written `RenderBackend` in
-      `crates/fepdf/examples/glyph_loss.rs` — an example cannot declare a module under
-      `tests/`. Adding a crate to the workspace is a structural decision and takes an ADR;
-      the two constraints above are what it records.
-
-      *Done when*: `grep -rl "0000000000 65535 f" crates/*/src` is empty, and the only
-      `impl RenderBackend` outside the engine is the one in the new crate.
+      `crates/fepdf/examples/glyph_loss.rs` was the thirteenth hand-written
+      `RenderBackend` and the one a module under `tests/` could not reach. It replays the
+      shared recorder now and reports the same **1,137 glyphs lost of 16,321,270** this
+      document quotes in §9 — which is what says the rewrite changed nothing. The fixture
+      generators were checked by running them and diffing their output byte for byte.
 
 - [ ] **`fepdf-mcp` links a GPU stack.** `fepdf = { workspace = true, features = ["render"] }`
       is the sentence [Rule B](CODING.md) uses as its own example. Noted as out of scope

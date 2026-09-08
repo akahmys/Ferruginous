@@ -16,27 +16,6 @@
 use fepdf_model::optional_content::{LayerId, LayerPanel, LayerRow, OptionalContentState};
 use fepdf_model::{Document, Handle, Object};
 
-/// Assembles a one-page file from object bodies, numbered from 1.
-fn assemble(bodies: &[String]) -> Vec<u8> {
-    let mut out = b"%PDF-2.0\n".to_vec();
-    let mut offsets = Vec::new();
-    for (i, body) in bodies.iter().enumerate() {
-        offsets.push(out.len());
-        out.extend_from_slice(format!("{} 0 obj\n{body}\nendobj\n", i + 1).as_bytes());
-    }
-    let table_at = out.len();
-    let size = bodies.len() + 1;
-    out.extend_from_slice(format!("xref\n0 {size}\n0000000000 65535 f \n").as_bytes());
-    for offset in &offsets {
-        out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
-    }
-    out.extend_from_slice(
-        format!("trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{table_at}\n%%EOF\n")
-            .as_bytes(),
-    );
-    out
-}
-
 /// A file whose catalogue carries `/OCProperties` with two groups, objects 5 and 6.
 fn document(configuration: &str) -> Document {
     let bodies = vec![
@@ -50,7 +29,7 @@ fn document(configuration: &str) -> Document {
         "<< /Type /OCG /Name (Second) >>".to_string(),
     ];
     fepdf_model::document::Document::open(
-        assemble(&bodies).into(),
+        fepdf_fixtures::assemble(&bodies).into(),
         &fepdf_model::ingest::IngestionOptions::default(),
     )
     .expect("the fixture opens")

@@ -18,11 +18,9 @@ use fepdf::{IngestionOptions, PdfDocument};
 use fepdf_doc::operation::{DecorationPosition, Operation, PageSelection};
 use kurbo::Affine;
 
-pub mod recorder;
-use recorder::Recorder;
+use fepdf_fixtures::recorder::Recorder;
 
-mod common;
-use common::assemble;
+use fepdf_fixtures::assemble;
 
 /// A one-page file drawing `ORIGINAL`, with its resources placed by `resources_on_page`
 /// and `resources_on_tree` — the two ways 7.7.3.4 lets a page reach them.

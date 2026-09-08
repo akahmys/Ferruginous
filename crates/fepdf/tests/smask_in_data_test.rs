@@ -24,8 +24,8 @@ use fepdf::{IngestionOptions, PdfDocument};
 use fepdf_content::PixelFormat;
 use kurbo::Affine;
 
-pub mod recorder;
-use recorder::{ImageDrawn, Recorder};
+use fepdf_fixtures::assemble;
+use fepdf_fixtures::recorder::{ImageDrawn, Recorder};
 
 /// 8x8 RGBA: left half opaque red, right half blue at 128/255. Colour not premultiplied.
 const RGBA_STRAIGHT: &[u8] = &[
@@ -105,49 +105,24 @@ const RGB_NO_ALPHA: &[u8] = &[
 /// merged into the image dictionary.
 fn page_with_jpx(codestream: &[u8], entries: &str) -> Vec<u8> {
     let content = "q 8 0 0 8 0 0 cm /Im0 Do Q";
-    let header = format!(
+    let mut image = format!(
         "<< /Type /XObject /Subtype /Image /Width 8 /Height 8 /ColorSpace /DeviceRGB \
-         /BitsPerComponent 8 /Filter /JPXDecode {entries} /Length {} >>",
+         /BitsPerComponent 8 /Filter /JPXDecode {entries} /Length {} >>\nstream\n",
         codestream.len()
-    );
-    let mut out = b"%PDF-2.0\n".to_vec();
-    let mut offsets = Vec::new();
-    let object = |out: &mut Vec<u8>, offsets: &mut Vec<usize>, body: &[u8]| {
-        offsets.push(out.len());
-        out.extend_from_slice(format!("{} 0 obj\n", offsets.len()).as_bytes());
-        out.extend_from_slice(body);
-        out.extend_from_slice(b"\nendobj\n");
-    };
-    object(&mut out, &mut offsets, b"<< /Type /Catalog /Pages 2 0 R >>");
-    object(&mut out, &mut offsets, b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>");
-    object(
-        &mut out,
-        &mut offsets,
-        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 8 8] \
-          /Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>",
-    );
-    object(
-        &mut out,
-        &mut offsets,
-        format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()).as_bytes(),
-    );
-    let mut image = header.into_bytes();
-    image.extend_from_slice(b"\nstream\n");
+    )
+    .into_bytes();
     image.extend_from_slice(codestream);
     image.extend_from_slice(b"\nendstream");
-    object(&mut out, &mut offsets, &image);
 
-    let table_at = out.len();
-    let size = offsets.len() + 1;
-    out.extend_from_slice(format!("xref\n0 {size}\n0000000000 65535 f \n").as_bytes());
-    for offset in &offsets {
-        out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
-    }
-    out.extend_from_slice(
-        format!("trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{table_at}\n%%EOF\n")
-            .as_bytes(),
-    );
-    out
+    assemble(&[
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 8 8] \
+          /Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>"
+            .to_vec(),
+        format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()).into_bytes(),
+        image,
+    ])
 }
 
 /// Draws the page and reports what the backend was handed, with the decisions taken.

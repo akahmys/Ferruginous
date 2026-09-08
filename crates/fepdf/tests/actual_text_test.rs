@@ -7,8 +7,7 @@
 
 use fepdf::{IngestionOptions, PdfDocument};
 
-mod common;
-use common::assemble;
+use fepdf_fixtures::assemble;
 
 /// A stream object with `extra` merged into its dictionary.
 fn stream(extra: &str, data: &str) -> String {

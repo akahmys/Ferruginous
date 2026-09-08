@@ -8,8 +8,7 @@
 use fepdf::{FormFieldSpec, FormValue, Operation, PdfDocument};
 use fepdf_script::{DocumentHandle, ScriptEnvironment, run_calculations};
 
-mod common;
-use common::assemble;
+use fepdf_fixtures::assemble;
 
 fn field(name: &str, value: &str, calculate: &str) -> String {
     format!(

@@ -212,27 +212,8 @@ mod tests {
             ),
             "<< /Type /Annot /Subtype /Link /Rect [0 0 1 1] /Dest [3 0 R /Fit] >>".to_string(),
         ];
-        let mut out = b"%PDF-2.0\n".to_vec();
-        let mut offsets = Vec::new();
-        for (i, body) in bodies.iter().enumerate() {
-            offsets.push(out.len());
-            out.extend_from_slice(format!("{} 0 obj\n{body}\nendobj\n", i + 1).as_bytes());
-        }
-        let table_at = out.len();
-        out.extend_from_slice(
-            format!("xref\n0 {}\n0000000000 65535 f \n", bodies.len() + 1).as_bytes(),
-        );
-        for offset in &offsets {
-            out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
-        }
-        out.extend_from_slice(
-            format!(
-                "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{table_at}\n%%EOF\n",
-                bodies.len() + 1
-            )
-            .as_bytes(),
-        );
-        out
+
+        fepdf_fixtures::assemble(&bodies)
     }
 
     /// **The property the whole measurement rests on**: a construct the file does not

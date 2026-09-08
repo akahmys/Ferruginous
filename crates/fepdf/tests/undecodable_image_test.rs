@@ -9,8 +9,7 @@
 
 use fepdf::{IngestionOptions, PdfDocument};
 
-mod common;
-use common::assemble;
+use fepdf_fixtures::assemble;
 
 /// A page that draws an image whose filter cannot be decoded, and then shows text.
 fn page_drawing_an_undecodable_image(filter: &str) -> Vec<u8> {

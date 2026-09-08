@@ -1187,22 +1187,7 @@ mod tests {
         push("<< /Title (two) /First 23 0 R /Count -1 >>".into()); // 22
         push("<< /Title (hidden under a closed parent) >>".into()); // 23
 
-        let mut out = String::from("%PDF-2.0\n");
-        let mut offsets = vec![0_usize];
-        for (i, body) in objs.iter().enumerate() {
-            offsets.push(out.len());
-            out.push_str(&format!("{} 0 obj\n{body}\nendobj\n", i + 1));
-        }
-        let xref_at = out.len();
-        out.push_str(&format!("xref\n0 {}\n0000000000 65535 f \n", objs.len() + 1));
-        for off in offsets.iter().skip(1) {
-            out.push_str(&format!("{off:010} 00000 n \n"));
-        }
-        out.push_str(&format!(
-            "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n",
-            objs.len() + 1
-        ));
-        out.into_bytes()
+        fepdf_fixtures::assemble(&objs)
     }
 
     #[test]
@@ -1354,22 +1339,7 @@ mod tests {
 
     /// Assembles `objs` as objects 1..=n with a cross-reference table and trailer.
     fn assemble(objs: &[&str]) -> Vec<u8> {
-        let mut out = String::from("%PDF-2.0\n");
-        let mut offsets = Vec::new();
-        for (i, body) in objs.iter().enumerate() {
-            offsets.push(out.len());
-            out.push_str(&format!("{} 0 obj\n{body}\nendobj\n", i + 1));
-        }
-        let xref_at = out.len();
-        out.push_str(&format!("xref\n0 {}\n0000000000 65535 f \n", objs.len() + 1));
-        for off in &offsets {
-            out.push_str(&format!("{off:010} 00000 n \n"));
-        }
-        out.push_str(&format!(
-            "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n",
-            objs.len() + 1
-        ));
-        out.into_bytes()
+        fepdf_fixtures::assemble(objs)
     }
 
     #[test]

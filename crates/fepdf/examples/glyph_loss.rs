@@ -25,15 +25,10 @@
 //! [ADR-0042]: ../../../docs/adr/0042-a-glyph-name-that-looks-like-a-character-code-is-not-one.md
 
 use fepdf::{IngestionOptions, PdfDocument};
-use fepdf_content::{
-    BlendMode, Color, FallbackFontType, Paint, PixelFormat, RenderBackend, SMaskData, ShadingSpec,
-    StrokeStyle, TextGlyph, TextState, WindingRule,
-};
+use fepdf_fixtures::recorder::{Event, Recorder};
 use fepdf_model::font::UnicodeSource;
-use fepdf_model::graphics::TextRenderingMode;
-use kurbo::{Affine, BezPath};
+use kurbo::Affine;
 use std::collections::BTreeMap;
-use std::sync::Arc;
 
 /// One losing site: the font selected, the code drawn, the glyph name the encoding gave
 /// it, and the route that failed.
@@ -67,15 +62,51 @@ struct Loss {
     first_page: BTreeMap<Site, usize>,
 }
 
-impl RenderBackend for Loss {
-    fn show_text(
-        &mut self,
-        glyphs: &[TextGlyph],
-        _size: f64,
-        _transform: Affine,
-        _state: TextState,
-        _op_index: usize,
-    ) {
+/// Every route, so a route that lost nothing prints a zero rather than vanishing.
+const ROUTES: [UnicodeSource; 6] = [
+    UnicodeSource::ToUnicode,
+    UnicodeSource::Encoding,
+    UnicodeSource::CidCollection,
+    UnicodeSource::AsciiGuess,
+    UnicodeSource::Withheld,
+    UnicodeSource::Unmapped,
+];
+
+/// What one file lost, or `None` when it could not be opened at all.
+impl Loss {
+    /// Folds one page's recorded calls into the running count.
+    ///
+    /// **Replayed rather than counted as it is drawn**, so this example holds no
+    /// `RenderBackend` of its own: it was the thirteenth hand-written one, 130 lines of
+    /// which the great majority said nothing. What it needs from a run is each glyph's
+    /// code, name and route, which is why `Event::Text` keeps the glyphs whole.
+    fn absorb(&mut self, page: usize, drawn: &Recorder) {
+        self.page = page;
+        for event in &drawn.events {
+            if let Event::Font { name, base: Some(base), .. } = event {
+                self.base_names.insert(name.clone(), base.clone());
+            }
+            if let Event::SetFont(name) = event {
+                self.current = self.base_names.get(name).cloned().unwrap_or_else(|| name.clone());
+            }
+            if let Event::Text { glyphs, .. } = event {
+                self.count_run(glyphs);
+            }
+            // 14.9.4's bracket. An event is one variant, so these read as the arms of
+            // the `match` they replace — written as `if let` because RR-15 Rule 5 forbids
+            // the `_ =>` that a `match` over a 27-variant enum would need.
+            if matches!(event, Event::BeginActualText(_)) {
+                self.replacing += 1;
+            }
+            if matches!(event, Event::EndActualText) {
+                self.replacing = self.replacing.saturating_sub(1);
+            }
+        }
+    }
+
+    /// One run: every glyph is seen, and one inside an `/ActualText` section that reached
+    /// no character is replaced rather than lost (14.9.4).
+    fn count_run(&mut self, glyphs: &[fepdf_content::TextGlyph]) {
         for glyph in glyphs {
             self.seen = self.seen.saturating_add(1);
             if self.replacing > 0 {
@@ -92,73 +123,8 @@ impl RenderBackend for Loss {
             *self.sites.entry(site).or_default() += 1;
         }
     }
-
-    fn define_font(
-        &mut self,
-        name: &str,
-        base_name: Option<&str>,
-        _data: Option<Arc<Vec<u8>>>,
-        _index: Option<usize>,
-        _cid_to_gid_map: Option<BTreeMap<u32, u32>>,
-        _fallback_type: FallbackFontType,
-        _is_cid_keyed: bool,
-    ) {
-        self.base_names.insert(name.to_string(), base_name.unwrap_or(name).to_string());
-    }
-
-    fn begin_actual_text(&mut self, _text: &str) {
-        self.replacing = self.replacing.saturating_add(1);
-    }
-
-    fn end_actual_text(&mut self) {
-        self.replacing = self.replacing.saturating_sub(1);
-    }
-
-    fn set_font(&mut self, name: &str) {
-        self.current = self.base_names.get(name).cloned().unwrap_or_else(|| name.to_string());
-    }
-
-    fn transform(&mut self, _transform: Affine) {}
-    fn set_transform(&mut self, _transform: Affine) {}
-    fn push_state(&mut self) {}
-    fn pop_state(&mut self) {}
-    fn fill_path(&mut self, _path: &BezPath, _color: &Color, _rule: WindingRule) {}
-    fn stroke_path(&mut self, _path: &BezPath, _color: &Color, _style: &StrokeStyle) {}
-    fn push_clip(&mut self, _path: &BezPath, _rule: WindingRule) {}
-    fn pop_clip(&mut self) {}
-    fn set_fill_alpha(&mut self, _alpha: f64) {}
-    fn set_stroke_alpha(&mut self, _alpha: f64) {}
-    fn set_fill_color(&mut self, _color: Color) {}
-    fn set_stroke_color(&mut self, _color: Color) {}
-    fn set_fill_paint(&mut self, _paint: &Paint) {}
-    fn set_stroke_paint(&mut self, _paint: &Paint) {}
-    fn paint_shading(&mut self, _shading: &ShadingSpec) {}
-    fn set_blend_mode(&mut self, _mode: BlendMode) {}
-    fn draw_image(
-        &mut self,
-        _image: &[u8],
-        _width: u32,
-        _height: u32,
-        _format: PixelFormat,
-        _smask: Option<SMaskData>,
-    ) {
-    }
-    fn set_text_render_mode(&mut self, _mode: TextRenderingMode) {}
-    fn set_char_spacing(&mut self, _spacing: f64) {}
-    fn set_word_spacing(&mut self, _spacing: f64) {}
 }
 
-/// Every route, so a route that lost nothing prints a zero rather than vanishing.
-const ROUTES: [UnicodeSource; 6] = [
-    UnicodeSource::ToUnicode,
-    UnicodeSource::Encoding,
-    UnicodeSource::CidCollection,
-    UnicodeSource::AsciiGuess,
-    UnicodeSource::Withheld,
-    UnicodeSource::Unmapped,
-];
-
-/// What one file lost, or `None` when it could not be opened at all.
 fn measure(path: &str) -> Option<Loss> {
     let data = match std::fs::read(path) {
         Ok(data) => data,
@@ -183,10 +149,11 @@ fn measure(path: &str) -> Option<Loss> {
     };
     let mut loss = Loss::default();
     for index in 0..pages {
-        loss.page = index + 1;
+        let mut drawn = Recorder::new();
         // A page that will not interpret has still drawn what it drew, and the error is
         // not this probe's subject — `inspect text` is where it is reported.
-        let _ = doc.render_page(index, &mut loss, Affine::IDENTITY);
+        let _ = doc.render_page(index, &mut drawn, Affine::IDENTITY);
+        loss.absorb(index + 1, &drawn);
     }
     Some(loss)
 }

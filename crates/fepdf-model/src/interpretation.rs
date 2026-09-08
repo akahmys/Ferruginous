@@ -294,22 +294,14 @@ mod carried_everywhere {
 
     /// A file with 300 bytes before `%PDF-`, which is a `Repaired` under 7.5.2.
     fn prefixed() -> Vec<u8> {
-        let body = "%PDF-2.0\n\
-             1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
-             2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
-             3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj\n";
-        let offsets: Vec<usize> =
-            (1..=3).map(|n| body.find(&format!("\n{n} 0 obj")).map_or(0, |p| p + 1)).collect();
-        let mut out = String::from(body);
-        let xref_at = out.len();
-        out.push_str("xref\n0 4\n0000000000 65535 f \n");
-        for off in &offsets {
-            out.push_str(&format!("{off:010} 00000 n \n"));
-        }
-        out.push_str(&format!("trailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"));
-
+        // The junk goes on *after* the table is written, so every offset in it is 300
+        // bytes short of where the object now sits. That is the repair being checked.
         let mut prefixed = vec![b'X'; 300];
-        prefixed.extend_from_slice(out.as_bytes());
+        prefixed.extend_from_slice(&fepdf_fixtures::assemble(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>",
+        ]));
         prefixed
     }
 
@@ -352,27 +344,16 @@ mod carried_everywhere {
             <rdf:Description rdf:about=\"\" xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\">\
             <xmp:ModifyDate>2024-11-08T09:08:18+09:00</xmp:ModifyDate>\
             </rdf:Description></rdf:RDF></x:xmpmeta><?xpacket end=\"w\"?>";
-        let body = format!(
-            "%PDF-2.0\n\
-             1 0 obj\n<< /Type /Catalog /Pages 2 0 R /Metadata 4 0 R >>\nendobj\n\
-             2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
-             3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj\n\
-             4 0 obj\n<< /Type /Metadata /Subtype /XML /Length {} >>\nstream\n{xmp}\nendstream\nendobj\n\
-             5 0 obj\n<< /ModDate (D:20241114200008+09'00') >>\nendobj\n",
-            xmp.len()
-        );
-        let offsets: Vec<usize> =
-            (1..=5).map(|n| body.find(&format!("\n{n} 0 obj")).map_or(0, |p| p + 1)).collect();
-        let mut out = body;
-        let xref_at = out.len();
-        out.push_str("xref\n0 6\n0000000000 65535 f \n");
-        for off in &offsets {
-            out.push_str(&format!("{off:010} 00000 n \n"));
-        }
-        out.push_str(&format!(
-            "trailer\n<< /Size 6 /Root 1 0 R /Info 5 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
-        ));
-        out.into_bytes()
+        fepdf_fixtures::Pdf::new().trailer_entries("/Info 5 0 R").assemble(&[
+            "<< /Type /Catalog /Pages 2 0 R /Metadata 4 0 R >>".to_string(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>".to_string(),
+            format!(
+                "<< /Type /Metadata /Subtype /XML /Length {} >>\nstream\n{xmp}\nendstream",
+                xmp.len()
+            ),
+            "<< /ModDate (D:20241114200008+09'00') >>".to_string(),
+        ])
     }
 
     /// `FileStructure::survey` reports the raw read's decisions, and refinement's are

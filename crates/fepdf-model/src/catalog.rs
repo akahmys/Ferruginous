@@ -489,28 +489,9 @@ mod tests {
         );
     }
 
-    fn assemble(objects: &[&str]) -> Vec<u8> {
-        let mut out = String::from("%PDF-2.0\n");
-        let mut offsets = Vec::new();
-        for (index, body) in objects.iter().enumerate() {
-            offsets.push(out.len());
-            out.push_str(&format!("{} 0 obj\n{body}\nendobj\n", index + 1));
-        }
-        let table_at = out.len();
-        let size = objects.len() + 1;
-        out.push_str(&format!("xref\n0 {size}\n0000000000 65535 f \n"));
-        for offset in &offsets {
-            out.push_str(&format!("{offset:010} 00000 n \n"));
-        }
-        out.push_str(&format!(
-            "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{table_at}\n%%EOF\n"
-        ));
-        out.into_bytes()
-    }
-
     /// Object 4 holds `4 0 R`, so following `/Loop` never reaches a value.
     fn self_referencing_file() -> Vec<u8> {
-        assemble(&[
+        fepdf_fixtures::assemble(&[
             "<< /Type /Catalog /Pages 2 0 R /Loop 4 0 R >>",
             "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
             "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>",
@@ -520,7 +501,7 @@ mod tests {
 
     /// `/Chain` is `4 0 R`, object 4 is `5 0 R`, object 5 is the name it ends at.
     fn chained_file() -> Vec<u8> {
-        assemble(&[
+        fepdf_fixtures::assemble(&[
             "<< /Type /Catalog /Pages 2 0 R /Chain 4 0 R >>",
             "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
             "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>",

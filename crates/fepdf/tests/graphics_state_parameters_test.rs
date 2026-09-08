@@ -19,11 +19,9 @@ use fepdf::PdfDocument;
 use fepdf_content::StrokeStyle;
 use kurbo::Affine;
 
-pub mod recorder;
-use recorder::{Event, Recorder};
+use fepdf_fixtures::recorder::{Event, Recorder};
 
-mod common;
-use common::assemble;
+use fepdf_fixtures::assemble;
 
 /// The strokes a page draws, given a content stream and one `/ExtGState` named `/G1`.
 fn strokes(content: &str, ext_g_state: &str) -> (Vec<StrokeStyle>, Vec<fepdf::Decision>) {

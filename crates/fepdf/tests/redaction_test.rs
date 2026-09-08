@@ -23,8 +23,7 @@
 
 use fepdf::PdfDocument;
 
-mod common;
-use common::assemble;
+use fepdf_fixtures::assemble;
 
 /// Four runs, one per line, a hundred points apart so a rectangle can name exactly one.
 fn four_runs() -> Vec<u8> {

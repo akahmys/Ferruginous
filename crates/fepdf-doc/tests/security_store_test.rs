@@ -14,8 +14,7 @@
 use fepdf_doc::{Operation, apply_operation};
 use fepdf_model::{Document, Object, ingest::IngestionOptions};
 
-mod common;
-use common::assemble;
+use fepdf_fixtures::assemble;
 
 fn document() -> Document {
     Document::open(

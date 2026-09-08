@@ -15,8 +15,7 @@ use fepdf_model::Document;
 use fepdf_model::document::extensions::{FormFieldSpec, FormValue, OutlineNode, OutlineTree};
 use fepdf_model::ingest::IngestionOptions;
 
-mod common;
-use common::assemble;
+use fepdf_fixtures::assemble;
 
 fn open(objects: &[&str]) -> Document {
     Document::open(bytes::Bytes::from(assemble(objects)), &IngestionOptions::default())

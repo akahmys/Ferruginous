@@ -546,22 +546,7 @@ mod tests {
                 format!("<< /Names [{names}] >>"),
             ];
 
-            let mut out = String::from("%PDF-2.0\n");
-            let mut offsets = Vec::new();
-            for (i, body) in objects.iter().enumerate() {
-                offsets.push(out.len());
-                out.push_str(&format!("{} 0 obj\n{body}\nendobj\n", i + 1));
-            }
-            let xref_at = out.len();
-            out.push_str(&format!("xref\n0 {}\n0000000000 65535 f \n", objects.len() + 1));
-            for off in &offsets {
-                out.push_str(&format!("{off:010} 00000 n \n"));
-            }
-            out.push_str(&format!(
-                "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n",
-                objects.len() + 1
-            ));
-            out.into_bytes()
+            fepdf_fixtures::assemble(&objects)
         }
 
         #[test]

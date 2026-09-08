@@ -15,11 +15,9 @@ use fepdf_content::{BlendMode, Color, SoftMaskKind};
 use fepdf_model::interpretation::Severity;
 use kurbo::{Affine, Shape};
 
-pub mod recorder;
-use recorder::{Event, Recorder};
+use fepdf_fixtures::recorder::{Event, Recorder};
 
-mod common;
-use common::assemble;
+use fepdf_fixtures::assemble;
 
 /// The mask bracket and the fills inside it, in order.
 ///

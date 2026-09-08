@@ -19,5 +19,8 @@ thiserror.workspace = true
 schemars.workspace = true
 bytes.workspace = true
 
+[dev-dependencies]
+fepdf-fixtures.workspace = true
+
 [lints]
 workspace = true

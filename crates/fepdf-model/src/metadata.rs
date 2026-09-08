@@ -511,24 +511,7 @@ xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\
             "<< /CreationDate (D:20240101000000Z) >>".to_string(),
             stream(packet),
         ];
-        let mut out = b"%PDF-2.0\n".to_vec();
-        let mut offsets = Vec::new();
-        for (i, body) in bodies.iter().enumerate() {
-            offsets.push(out.len());
-            out.extend_from_slice(format!("{} 0 obj\n{body}\nendobj\n", i + 1).as_bytes());
-        }
-        let xref_at = out.len();
-        out.extend_from_slice(b"xref\n0 7\n0000000000 65535 f \n");
-        for at in &offsets {
-            out.extend_from_slice(format!("{at:010} 00000 n \n").as_bytes());
-        }
-        out.extend_from_slice(
-            format!(
-                "trailer\n<< /Size 7 /Root 1 0 R /Info 5 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
-            )
-            .as_bytes(),
-        );
-        out
+        fepdf_fixtures::Pdf::new().trailer_entries("/Info 5 0 R").assemble(&bodies)
     }
 
     #[test]
@@ -601,24 +584,7 @@ xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\
                 .to_string(),
         ];
 
-        let mut out = b"%PDF-2.0\n".to_vec();
-        let mut offsets = Vec::new();
-        for (i, body) in bodies.iter().enumerate() {
-            offsets.push(out.len());
-            out.extend_from_slice(format!("{} 0 obj\n{body}\nendobj\n", i + 1).as_bytes());
-        }
-        let xref_at = out.len();
-        out.extend_from_slice(b"xref\n0 6\n0000000000 65535 f \n");
-        for at in &offsets {
-            out.extend_from_slice(format!("{at:010} 00000 n \n").as_bytes());
-        }
-        out.extend_from_slice(
-            format!(
-                "trailer\n<< /Size 6 /Root 1 0 R /Info 5 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
-            )
-            .as_bytes(),
-        );
-        out
+        fepdf_fixtures::Pdf::new().trailer_entries("/Info 5 0 R").assemble(&bodies)
     }
 
     fn open_fixture(bytes: Vec<u8>) -> Document {

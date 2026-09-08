@@ -4,10 +4,8 @@ use fepdf::{ChoiceOption, FormFieldSpec, FormValue, InteractiveReport, PdfDocume
 use fepdf_doc::operation::Operation;
 use kurbo::Affine;
 
-mod common;
-use common::assemble;
-pub mod recorder;
-use recorder::Recorder;
+use fepdf_fixtures::assemble;
+use fepdf_fixtures::recorder::Recorder;
 
 fn choice_form(field_extra: &str) -> Vec<u8> {
     let bodies = [

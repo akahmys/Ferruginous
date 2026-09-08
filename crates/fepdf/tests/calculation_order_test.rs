@@ -20,8 +20,7 @@
 
 use fepdf::{FormFieldSpec, FormValue, Operation, PdfDocument};
 
-mod common;
-use common::assemble;
+use fepdf_fixtures::assemble;
 
 /// A form whose `total` is computed from `a` and `b`, with `/CO` naming the order.
 fn calculating_form() -> Vec<u8> {

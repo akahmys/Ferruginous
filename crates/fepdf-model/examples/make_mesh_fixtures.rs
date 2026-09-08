@@ -21,8 +21,6 @@
 //! ./scripts/test/crosscheck_image.sh
 //! ```
 
-use std::fmt::Write as _;
-
 /// The quadrant the mesh covers: x in [0,100], y in [100,200] on a 200×200 page.
 const X0: f64 = 0.0;
 const X1: f64 = 100.0;
@@ -168,42 +166,26 @@ fn tensor() -> Vec<u8> {
 
 /// A one-page 200×200 file whose object 5 is a binary stream.
 fn page(resources: &str, content: &[u8], stream_dict: &str, stream_data: &[u8]) -> Vec<u8> {
-    let heads = [
-        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
-        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+    // Objects 4 and 5 carry binary — the mesh's own coordinates, and the content stream
+    // that draws it. A `String` body cannot hold either, which is why the shared
+    // assembler takes bytes.
+    let stream = |dict: String, data: &[u8]| {
+        let mut body = dict.into_bytes();
+        body.extend_from_slice(b"\nstream\n");
+        body.extend_from_slice(data);
+        body.extend_from_slice(b"\nendstream");
+        body
+    };
+
+    fepdf_fixtures::assemble(&[
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
         format!(
             "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] \
              /Resources << {resources} >> /Contents 4 0 R >>"
-        ),
-        format!("<< /Length {} >>", content.len()),
-    ];
-
-    let mut out = b"%PDF-2.0\n".to_vec();
-    let mut offsets = Vec::new();
-    for (i, body) in heads.iter().enumerate() {
-        offsets.push(out.len());
-        out.extend_from_slice(format!("{} 0 obj\n{body}\n", i + 1).as_bytes());
-        if i == 3 {
-            out.extend_from_slice(b"stream\n");
-            out.extend_from_slice(content);
-            out.extend_from_slice(b"endstream\n");
-        }
-        out.extend_from_slice(b"endobj\n");
-    }
-    offsets.push(out.len());
-    out.extend_from_slice(format!("5 0 obj\n{stream_dict}\nstream\n").as_bytes());
-    out.extend_from_slice(stream_data);
-    out.extend_from_slice(b"\nendstream\nendobj\n");
-
-    let table_at = out.len();
-    let count = offsets.len() + 1;
-    let mut trailer = String::new();
-    let _ = write!(trailer, "xref\n0 {count}\n0000000000 65535 f \n");
-    for offset in &offsets {
-        let _ = writeln!(trailer, "{offset:010} 00000 n ");
-    }
-    let _ =
-        write!(trailer, "trailer\n<< /Size {count} /Root 1 0 R >>\nstartxref\n{table_at}\n%%EOF\n");
-    out.extend_from_slice(trailer.as_bytes());
-    out
+        )
+        .into_bytes(),
+        stream(format!("<< /Length {} >>", content.len()), content),
+        stream(stream_dict.to_string(), stream_data),
+    ])
 }

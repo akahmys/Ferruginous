@@ -1,0 +1,26 @@
+[package]
+name = "fepdf-fixtures"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+# **This crate must not depend on `fepdf`, and by default it depends on nothing.**
+# A fixture the writer produces cannot catch a writer defect, so the bytes here are
+# written by hand. The `backend` feature is the one exception and it reaches only as far
+# as `fepdf-content`, which defines the `RenderBackend` contract and implements none of
+# it — a test crate that wants to record draw calls needs the trait, and nothing below it.
+[dependencies]
+fepdf-content = { workspace = true, optional = true }
+fepdf-model = { workspace = true, optional = true }
+kurbo = { workspace = true, optional = true }
+
+[features]
+default = []
+backend = ["dep:fepdf-content", "dep:fepdf-model", "dep:kurbo"]
+
+[lints]
+workspace = true

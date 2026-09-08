@@ -8,8 +8,7 @@
 
 use fepdf::{ActionReport, Capability, IngestionOptions, PdfDocument, Says, Trigger};
 
-mod common;
-use common::assemble;
+use fepdf_fixtures::assemble;
 
 /// A one-page document with `catalogue` merged into the catalogue, `page` into the page,
 /// and `extra` as objects 4 onward.

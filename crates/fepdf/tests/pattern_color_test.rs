@@ -21,8 +21,7 @@
 use fepdf::{IngestionOptions, PdfDocument};
 use std::sync::OnceLock;
 
-mod common;
-use common::assemble;
+use fepdf_fixtures::assemble;
 
 /// `samples/fy05.pdf`, opened once for the whole binary.
 ///
@@ -112,7 +111,7 @@ fn a_page_that_paints_with_a_pattern_yields_its_text() {
         },
     ];
 
-    let out = assemble(&objects.map(String::from));
+    let out = assemble(&objects);
 
     let document =
         PdfDocument::open_with_options(bytes::Bytes::from(out), &IngestionOptions::default())

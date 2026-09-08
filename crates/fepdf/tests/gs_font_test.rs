@@ -13,8 +13,7 @@
 
 use fepdf::{IngestionOptions, PdfDocument};
 
-mod common;
-use common::assemble;
+use fepdf_fixtures::assemble;
 
 /// One page, one text run, and the font selected however the caller asks.
 fn page_selecting_its_font(resources: &str, content: &str) -> Vec<u8> {

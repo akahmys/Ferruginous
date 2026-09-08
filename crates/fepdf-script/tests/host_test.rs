@@ -8,13 +8,11 @@
 use fepdf::PdfDocument;
 use fepdf_script::{DocumentHandle, ScriptEnvironment, ScriptError, ScriptHost};
 
-mod common;
-
 /// A one-page document, so `this.numPages` has something true to report.
 fn document() -> PdfDocument {
     let content = "0 0 0 rg 0 0 10 10 re f\n";
     PdfDocument::open(
-        common::assemble(&[
+        fepdf_fixtures::assemble(&[
             "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
             "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
             "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R >>".to_string(),

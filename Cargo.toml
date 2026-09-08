@@ -14,6 +14,7 @@ members = [
     "crates/fepdf-cli",
     "crates/fepdf-macros",
     "crates/fepdf-script",
+    "crates/fepdf-fixtures",
 ]
 
 [workspace.dependencies]
@@ -137,6 +138,7 @@ fepdf-render = { path = "crates/fepdf-render", version = "1.0.0" }
 fepdf = { path = "crates/fepdf", version = "1.0.0" }
 fepdf-script = { path = "crates/fepdf-script", version = "1.0.0" }
 fepdf-macros = { path = "crates/fepdf-macros", version = "1.0.0" }
+fepdf-fixtures = { path = "crates/fepdf-fixtures", version = "1.0.0" }
 
 # GUI, Web & CLI Ecosystem
 eframe = { version = "0.34", features = ["wgpu"] }

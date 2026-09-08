@@ -13,5 +13,8 @@ boa_engine.workspace = true
 boa_gc.workspace = true
 thiserror.workspace = true
 
+[dev-dependencies]
+fepdf-fixtures.workspace = true
+
 [lints]
 workspace = true

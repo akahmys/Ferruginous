@@ -2,8 +2,7 @@
 
 use fepdf::PdfDocument;
 
-mod common;
-use common::assemble;
+use fepdf_fixtures::assemble;
 
 fn cjk_doc(registry: &str, ordering: &str, supplement: i32, hex_cids: &str) -> Vec<u8> {
     let content = format!("BT /F1 16 Tf 50 750 Td <{hex_cids}> Tj ET");

@@ -15,8 +15,7 @@ use fepdf_doc::operation::{DecorationPosition, Operation, PageSelection};
 use fepdf_model::document::extensions::{LayerGroup, OptionalContentProperties, VisibilityState};
 use kurbo::Affine;
 
-pub mod recorder;
-use recorder::Recorder;
+use fepdf_fixtures::recorder::Recorder;
 
 /// Writes a one-page document carrying one layer in `state`, with a decoration in it,
 /// and hands back the bytes as they were written to disk.

@@ -12,27 +12,17 @@ use std::fmt::Write as _;
 /// Written out by hand rather than by a library, so the tests exercise the reader on
 /// bytes a producer would actually emit, offsets and all. Objects are numbered from 1
 /// in the order given, and `root` names which of them is the catalogue.
+/// A PDF 1.7 file with an `/ID`, which is what these tests are about: `version_is_read`
+/// asserts the header and the encryption tests need the trailer entry.
 fn assemble(bodies: &[String], root: usize) -> Bytes {
-    let mut out = String::from("%PDF-1.7\n");
-    let mut offsets = Vec::new();
-    for (index, body) in bodies.iter().enumerate() {
-        offsets.push(out.len());
-        let _ = write!(out, "{} 0 obj\n{body}\nendobj\n", index + 1);
-    }
-
-    let startxref = out.len();
-    let size = bodies.len() + 1;
-    let _ = write!(out, "xref\n0 {size}\n0000000000 65535 f \n");
-    for offset in &offsets {
-        let _ = writeln!(out, "{offset:010} 00000 n ");
-    }
-    let id = "<0123456789abcdef0123456789abcdef>";
-    let _ = write!(
-        out,
-        "trailer\n<< /Size {size} /Root {root} 0 R /ID [{id} {id}] >>\n\
-         startxref\n{startxref}\n%%EOF\n"
-    );
-    Bytes::from(out)
+    const ID: &str = "<0123456789abcdef0123456789abcdef>";
+    Bytes::from(
+        fepdf_fixtures::Pdf::new()
+            .version("1.7")
+            .root(root)
+            .trailer_entries(&format!("/ID [{ID} {ID}]"))
+            .assemble(bodies),
+    )
 }
 
 /// The smallest conforming document: a catalogue and an empty page tree.

@@ -16,11 +16,9 @@
 use fepdf::{IngestionOptions, PdfDocument};
 use kurbo::Affine;
 
-pub mod recorder;
-use recorder::Recorder;
+use fepdf_fixtures::recorder::Recorder;
 
-mod common;
-use common::assemble;
+use fepdf_fixtures::assemble;
 
 /// The square under test, in the top-left quarter of a 200×200 page.
 const TOP_LEFT: &str = "0 0 0 rg 0 100 100 100 re f\n";

@@ -18,8 +18,6 @@
 //! Lands in `target/scans/`, beside the other generated corpora and out of `samples/`,
 //! whose count several measurements quote.
 
-use std::fmt::Write as _;
-
 /// The image every fixture carries: a black square in the top-left quarter, which is
 /// asymmetric in both directions so a flip, a transpose or an inversion all show.
 const COLUMNS: u16 = 256;
@@ -159,32 +157,17 @@ fn page_with_image_and_globals(
         bodies.push((format!("<< /Length {} >>\nstream\n", globals.len()), Some(globals)));
     }
 
-    let mut out = b"%PDF-2.0\n".to_vec();
-    let mut offsets = Vec::new();
-    for (i, (body, binary)) in bodies.iter().enumerate() {
-        offsets.push(out.len());
-        // A stream's bytes are binary and go in verbatim; every other body is text.
-        out.extend_from_slice(format!("{} 0 obj\n{body}", i + 1).as_bytes());
-        match binary {
-            Some(bytes) => {
+    // A stream's bytes are binary and go in verbatim; every other body is text.
+    let joined: Vec<Vec<u8>> = bodies
+        .into_iter()
+        .map(|(body, binary)| {
+            let mut out = body.into_bytes();
+            if let Some(bytes) = binary {
                 out.extend_from_slice(bytes);
-                out.extend_from_slice(b"\nendstream\nendobj\n");
+                out.extend_from_slice(b"\nendstream");
             }
-            None => out.extend_from_slice(b"\nendobj\n"),
-        }
-    }
-
-    let table_at = out.len();
-    let mut trailer = String::new();
-    let _ = write!(trailer, "xref\n0 {}\n0000000000 65535 f \n", bodies.len() + 1);
-    for offset in &offsets {
-        let _ = writeln!(trailer, "{offset:010} 00000 n ");
-    }
-    let _ = write!(
-        trailer,
-        "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{table_at}\n%%EOF\n",
-        bodies.len() + 1
-    );
-    out.extend_from_slice(trailer.as_bytes());
-    out
+            out
+        })
+        .collect();
+    fepdf_fixtures::assemble(&joined)
 }

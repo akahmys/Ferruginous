@@ -13,8 +13,7 @@
 
 use fepdf::PdfDocument;
 
-mod common;
-use common::assemble;
+use fepdf_fixtures::assemble;
 
 fn page_drawing(content: &str) -> PdfDocument {
     let objects = [
@@ -23,8 +22,7 @@ fn page_drawing(content: &str) -> PdfDocument {
         "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R >>".to_string(),
         format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()),
     ];
-    PdfDocument::open(bytes::Bytes::from(assemble(&objects.map(String::from))))
-        .expect("the fixture opens")
+    PdfDocument::open(bytes::Bytes::from(assemble(&objects))).expect("the fixture opens")
 }
 
 /// Interpreting the page is what raises the decision, so the page is interpreted.

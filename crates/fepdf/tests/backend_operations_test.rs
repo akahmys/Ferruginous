@@ -10,8 +10,7 @@ use fepdf_model::{
     VisibilityState,
 };
 
-pub mod common;
-use common::assemble_with_root;
+use fepdf_fixtures::assemble;
 
 #[test]
 fn test_portfolio_domain_model() {
@@ -123,11 +122,8 @@ fn test_output_intent_domain_model() {
 /// branch the test pinned.
 #[test]
 fn a_file_with_no_signature_reports_none() {
-    let bytes = assemble_with_root(
-        &["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [] /Count 0 >>"]
-            .map(String::from),
-        1,
-    );
+    let bytes =
+        assemble(&["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [] /Count 0 >>"]);
     let report = fepdf::SignatureReport::survey(&bytes).expect("a report");
     assert!(report.signatures.is_empty(), "found a signature in an unsigned file");
     assert_eq!(report.unsigned_fields, 0);

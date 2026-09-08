@@ -1,9 +1,12 @@
-//! One `RenderBackend` for this crate's integration tests.
+//! One `RenderBackend` for the workspace's tests and examples.
 //!
 //! **It was thirteen hand-written implementations on 2026-09-08**, 725 lines of which 241
 //! were methods written only to say nothing. Each one observed between two and eight of
 //! the trait's twenty required methods and stubbed the rest, so adding a method to
 //! `RenderBackend` meant editing thirteen files to write `{}` twelve more times.
+//!
+//! It lived under `crates/fepdf/tests/` first, which left the thirteenth out:
+//! `crates/fepdf/examples/glyph_loss.rs` cannot declare a module under `tests/`.
 //!
 //! This records every call as an ordered [`Event`] instead. A test reads the events it
 //! cares about and ignores the others, which is what each of the thirteen was doing by
@@ -130,11 +133,13 @@ pub enum Event {
     WordSpacing(f64),
     /// A run of positioned glyphs.
     Text {
-        /// The run's glyphs joined.
-        unicode: String,
-        /// How many glyphs there were, which differs from `unicode.len()` when a glyph
-        /// maps to no character or to several.
-        count: usize,
+        /// The glyphs as the interpreter emitted them — each with the code it was drawn
+        /// for, the name the encoding gave it, and which route found its character.
+        ///
+        /// **Kept whole rather than joined into a string.** A glyph that reached no
+        /// character is the subject of `crates/fepdf/examples/glyph_loss.rs`, and joining
+        /// the run throws away exactly the glyph it is counting.
+        glyphs: Vec<TextGlyph>,
         /// The font size in force.
         size: f64,
         /// The text matrix the run was placed with.
@@ -216,7 +221,11 @@ impl Recorder {
         self.events
             .iter()
             .filter_map(|e| {
-                if let Event::Text { unicode, .. } = e { Some(unicode.as_str()) } else { None }
+                if let Event::Text { glyphs, .. } = e {
+                    Some(glyphs.iter().map(|g| g.unicode.as_str()).collect::<String>())
+                } else {
+                    None
+                }
             })
             .collect()
     }
@@ -398,11 +407,6 @@ impl RenderBackend for Recorder {
         _state: TextState,
         _op_index: usize,
     ) {
-        self.events.push(Event::Text {
-            unicode: glyphs.iter().map(|g| g.unicode.as_str()).collect(),
-            count: glyphs.len(),
-            size,
-            transform,
-        });
+        self.events.push(Event::Text { glyphs: glyphs.to_vec(), size, transform });
     }
 }

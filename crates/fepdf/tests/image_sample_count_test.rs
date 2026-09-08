@@ -20,58 +20,32 @@ use fepdf::{IngestionOptions, PdfDocument};
 use fepdf_content::PixelFormat;
 use kurbo::Affine;
 
-pub mod recorder;
-use recorder::Recorder;
+use fepdf_fixtures::assemble;
+use fepdf_fixtures::recorder::Recorder;
 
 /// A page exactly the size of the image it draws, with `entries` in the image dictionary.
 fn page_with_image(width: u32, height: u32, entries: &str, data: &[u8]) -> Vec<u8> {
     let content = format!("q {width} 0 0 {height} 0 0 cm /Im0 Do Q");
-    let header = format!(
+    let mut image = format!(
         "<< /Type /XObject /Subtype /Image /Width {width} /Height {height} {entries} \
-         /Length {} >>",
+         /Length {} >>\nstream\n",
         data.len()
-    );
-    let mut out = b"%PDF-2.0\n".to_vec();
-    let mut offsets = Vec::new();
-    let object = |out: &mut Vec<u8>, offsets: &mut Vec<usize>, body: &[u8]| {
-        offsets.push(out.len());
-        out.extend_from_slice(format!("{} 0 obj\n", offsets.len()).as_bytes());
-        out.extend_from_slice(body);
-        out.extend_from_slice(b"\nendobj\n");
-    };
-    object(&mut out, &mut offsets, b"<< /Type /Catalog /Pages 2 0 R >>");
-    object(&mut out, &mut offsets, b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>");
-    object(
-        &mut out,
-        &mut offsets,
+    )
+    .into_bytes();
+    image.extend_from_slice(data);
+    image.extend_from_slice(b"\nendstream");
+
+    assemble(&[
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
         format!(
             "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {width} {height}] \
              /Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>"
         )
-        .as_bytes(),
-    );
-    object(
-        &mut out,
-        &mut offsets,
-        format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()).as_bytes(),
-    );
-    let mut image = header.into_bytes();
-    image.extend_from_slice(b"\nstream\n");
-    image.extend_from_slice(data);
-    image.extend_from_slice(b"\nendstream");
-    object(&mut out, &mut offsets, &image);
-
-    let table_at = out.len();
-    let size = offsets.len() + 1;
-    out.extend_from_slice(format!("xref\n0 {size}\n0000000000 65535 f \n").as_bytes());
-    for offset in &offsets {
-        out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
-    }
-    out.extend_from_slice(
-        format!("trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{table_at}\n%%EOF\n")
-            .as_bytes(),
-    );
-    out
+        .into_bytes(),
+        format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()).into_bytes(),
+        image,
+    ])
 }
 
 /// Interprets the page and reports what the backend got, with the decisions taken.

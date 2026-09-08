@@ -20,8 +20,7 @@
 
 use fepdf::{IngestionOptions, PdfDocument, SaveOptions};
 
-mod common;
-use common::assemble;
+use fepdf_fixtures::assemble;
 
 /// A one-page document with text, assembled here so no corpus is needed.
 fn fixture() -> bytes::Bytes {

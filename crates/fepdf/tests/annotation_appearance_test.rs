@@ -14,11 +14,9 @@
 use fepdf::{IngestionOptions, PdfDocument};
 use kurbo::Affine;
 
-pub mod recorder;
-use recorder::Recorder;
+use fepdf_fixtures::recorder::Recorder;
 
-mod common;
-use common::assemble;
+use fepdf_fixtures::assemble;
 
 /// A page with **no content of its own** and one annotation, so anything drawn came from
 /// the appearance. `annot` is merged into the annotation dictionary; `extra` are objects

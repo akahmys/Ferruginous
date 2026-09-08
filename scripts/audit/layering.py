@@ -64,16 +64,43 @@ def named_crates_exist() -> list[str]:
     ]
 
 
+def runtime_dependencies(manifest: Path) -> set[str]:
+    """The workspace crates a manifest declares in a table that ships.
+
+    **`[dev-dependencies]` is not one of them, and the distinction is the rule's.** Rule A
+    is about what a frontend reaches in the product: a frontend that declares `fepdf-doc`
+    can decide things the facade decides, and that is the whole objection. A crate its
+    tests use to write a fixture reaches nothing at run time, and `fepdf-fixtures` is
+    built so that it reaches nothing at all — it depends on nothing by default.
+
+    This scanned the whole file until 2026-09-08, which was not a judgement about
+    dev-dependencies; it was a regex over every line beginning `fepdf`, and no frontend
+    had a dev-dependency on a workspace crate for it to be wrong about. The first one
+    failed the audit the day it arrived.
+    """
+    table = None
+    found = set()
+    for line in manifest.read_text().splitlines():
+        stripped = line.strip()
+        if stripped.startswith("["):
+            table = stripped.strip("[]")
+            continue
+        if table is None or table.endswith("dev-dependencies"):
+            continue
+        if not table.endswith("dependencies"):
+            continue
+        m = re.match(r"(fepdf[a-z-]*)", stripped)
+        if m:
+            found.add(m.group(1))
+    return found
+
+
 def stray_declarations() -> list[str]:
     """Workspace crates a frontend declares that are neither the facade nor a library."""
     allowed = {FACADE, *ABOVE_FACADE_LIBRARIES}
     out = []
     for name in FRONTENDS:
-        manifest = ROOT / "crates" / name / "Cargo.toml"
-        declared = {
-            m.group(0)
-            for m in re.finditer(r"^fepdf[a-z-]*", manifest.read_text(), re.M)
-        }
+        declared = runtime_dependencies(ROOT / "crates" / name / "Cargo.toml")
         for stray in sorted(declared - allowed - {name}):
             out.append(f"  {name} declares {stray}, which is neither the facade nor above it")
     return out
