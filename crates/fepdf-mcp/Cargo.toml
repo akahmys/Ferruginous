@@ -8,8 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-# Rasterises pages (render tool), so the SDK's optional GPU path is required.
-fepdf = { workspace = true, features = ["render"] }
+fepdf.workspace = true
 fepdf-script.workspace = true
 rmcp = { workspace = true, features = ["macros", "server", "transport-io", "schemars"] }
 tokio.workspace = true
@@ -18,6 +17,19 @@ serde_json.workspace = true
 thiserror.workspace = true
 schemars.workspace = true
 bytes.workspace = true
+
+[features]
+# **The `render_page` tool rasterises, and rasterising costs 169 crates.** Measured
+# 2026-09-08: this crate's dependency tree is 285 crates with the feature and 116 without,
+# the difference being vello, wgpu, naga and what they bring. That is a deliberate opt-in
+# rather than a layering leak — `fepdf-content` defines `RenderBackend` and depends on no
+# implementation of it, which is what RR-15 Rule B is about — but a server that answers
+# over stdio and never draws should not have to link it.
+#
+# Default-on, so the tool list a client sees does not change unless the build says so.
+default = ["render"]
+## The `render_page` tool, backed by the facade's Vello + wgpu path.
+render = ["fepdf/render"]
 
 [dev-dependencies]
 fepdf-fixtures.workspace = true

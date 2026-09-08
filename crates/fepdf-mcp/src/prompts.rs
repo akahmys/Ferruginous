@@ -1,4 +1,10 @@
 //! Pre-configured MCP system prompts for PDF accessibility auditing and remediation.
+//!
+//! **A prompt names tools, and a name here is prose until a client tries to follow it.**
+//! This file told clients to reach for `get_structure_tree` from the day the prompts were
+//! added until 2026-09-08, and no tool of that name has existed in any commit — the
+//! structure tree is a resource, not a tool. `tests/tool_surface_test.rs` walks the names
+//! against the router now.
 
 /// Returns the system prompt template for evaluating PDF accessibility and Matterhorn compliance.
 pub fn prompt_audit_accessibility(path: &str) -> String {
@@ -8,7 +14,7 @@ Please audit the PDF document at path: `{path}`.
 
 Instructions:
 1. Use the `audit_document` tool to check for structural compliance and Matterhorn failures.
-2. Read the logical structure tree via the `get_structure_tree` tool or `pdf://local/{path}/struct_tree` resource.
+2. Read the logical structure tree from the `pdf://local/{path}/struct_tree` resource.
 3. Review headings hierarchy (H1 -> H2 -> H3), tables structure (TH, TD headers), and missing alternative texts (Alt) on Figures.
 4. Provide a structured audit report with actionable remediation steps."
     )

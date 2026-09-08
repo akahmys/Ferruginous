@@ -2859,16 +2859,40 @@ twin comes last, because everything above it strengthens the net that work needs
       document quotes in §9 — which is what says the rewrite changed nothing. The fixture
       generators were checked by running them and diffing their output byte for byte.
 
-- [ ] **`fepdf-mcp` links a GPU stack.** `fepdf = { workspace = true, features = ["render"] }`
-      is the sentence [Rule B](CODING.md) uses as its own example. Noted as out of scope
-      in [ADR-0082](docs/adr/0082-the-script-crate-is-a-library-the-frontends-call.md).
+- [x] **`fepdf-mcp` links a GPU stack, and this entry was wrong about why.** It said
+      `fepdf = { workspace = true, features = ["render"] }` "is the sentence Rule B uses
+      as its own example". It is not. Rule B is about a crate that defines a contract
+      depending on an implementation of it, and `fepdf-content` — which defines
+      `RenderBackend` — depends on no vello and no wgpu. **The rule is kept.** Rule B's
+      closing sentence describes the consequence it prevents; it does not name this.
+
+      What the entry was right about is the cost, and the *Done when* was right to ask
+      for it to be measured before anything was decided:
+
+      | | crates in the dependency tree | GPU crates |
+      | :--- | ---: | ---: |
+      | `fepdf-mcp` with `render` | 285 | 20 |
+      | `fepdf-mcp` without | 246 | 0 |
 
       ```text
-      grep -n "features" crates/fepdf-mcp/Cargo.toml
+      cargo tree -p fepdf-mcp -e normal --prefix none | awk '{print $1}' | sort -u | wc -l
       ```
 
-      *Done when*: which MCP tools need `render` is measured first, and the feature is
-      split or dropped on that evidence rather than on the guess that none do.
+      One of the server's tools rasterises, so the stack is genuinely needed by the build
+      that serves it — the guess that no tool needs it was wrong too. `render` is a
+      default-on feature of `fepdf-mcp` now, so a server that answers over stdio and never
+      draws can drop it, and the tool list changes with it rather than advertising a tool
+      that fails.
+
+      **Two routers rather than one**: `#[tool_router]` collects the methods carrying
+      `#[tool]` without looking at their `#[cfg]`, so cfg-ing a tool out of the main block
+      leaves the generated router calling a method that no longer exists.
+      `crates/fepdf-mcp/tests/tool_surface_test.rs` holds the tool list to the feature,
+      and passes under both builds.
+
+      That test also closes the first clause of the prompt-surface item below: it walks
+      the names a prompt uses against the router, and **failed on the first run**, on
+      `get_structure_tree` — which is what that item said and what nothing had checked.
 
 - [ ] **Two content-stream parsers.** `crates/fepdf-model/src/object/sublimation/parser.rs`
       is 836 lines and `crates/fepdf-content/src/interpreter/` is 3,892; the code itself
@@ -2905,20 +2929,22 @@ twin comes last, because everything above it strengthens the net that work needs
       way that it runs no examples. The deriving command now sits beside the number in
       `TESTING.md`, which is what that file's own warning asks for.
 
-- [ ] **The MCP prompt surface describes tools that do not exist and omits what two of
-      them now do.** `crates/fepdf-mcp/src/prompts.rs:11` names `get_structure_tree`, a
-      tool that has never existed in any commit. `set_form_field_value` and
-      `apply_operation` do not say in their descriptions that they now execute the
-      document's ECMAScript, which they have since [Phase R](#phase-r--running-the-documents-code)
-      was wired. 35 of 36 tool descriptions are one sentence with no statement of when not
-      to reach for them.
+- [ ] **The MCP prompt surface omits what two of its tools now do.**
+      `set_form_field_value` and `apply_operation` do not say in their descriptions that
+      they execute the document's ECMAScript, which they have since
+      [Phase R](#phase-r--running-the-documents-code) was wired. 35 of 36 tool
+      descriptions are one sentence with no statement of when not to reach for them.
+
+      **The third part of this is done.** `prompts.rs` named `get_structure_tree`, a tool
+      that has never existed in any commit — the structure tree is a resource. The check
+      the item asked for exists and caught it on its first run:
 
       ```text
-      git log --all -S "fn get_structure_tree" --oneline | wc -l   # 0
+      cargo test -p fepdf-mcp --test tool_surface_test
       ```
 
-      *Done when*: every tool a prompt names resolves to one the server registers, checked
-      rather than read.
+      *Done when*: a description says what a caller would be surprised by, and something
+      other than review says so.
 
 ## Read broadly, write 2.0
 

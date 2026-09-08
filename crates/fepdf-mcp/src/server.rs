@@ -11,19 +11,19 @@ use crate::tools::{
     AddAnnotationArgs, AddMeshShadingArgs, AddPageDecorationArgs, AddPublicKeyRecipientArgs,
     AddUserPropertiesArgs, ApplyBatesNumberingArgs, ApplyOperationArgs, AttachAssociatedFileArgs,
     AuditArgs, CreatePortfolioArgs, DeleteStructElemArgs, ExecuteActionArgs, ExtractTextArgs,
-    RedactDocumentArgs, RemovePagesArgs, RenderArgs, ReorderPagesArgs, RotatePagesArgs,
-    SetFormFieldValueArgs, SetGeospatialAnchorArgs, SetMeasurementScaleArgs, SetOutputIntentArgs,
-    SetPageLabelsArgs, SetPronunciationLexiconArgs, SetUnencryptedWrapperArgs,
-    UpdateArticleThreadsArgs, UpdateLayersArgs, UpdateOutlinesArgs, UpdateStructElemArgs,
-    VerifySignaturesArgs, add_annotation_impl, add_mesh_shading_impl, add_page_decoration_impl,
+    RedactDocumentArgs, RemovePagesArgs, ReorderPagesArgs, RotatePagesArgs, SetFormFieldValueArgs,
+    SetGeospatialAnchorArgs, SetMeasurementScaleArgs, SetOutputIntentArgs, SetPageLabelsArgs,
+    SetPronunciationLexiconArgs, SetUnencryptedWrapperArgs, UpdateArticleThreadsArgs,
+    UpdateLayersArgs, UpdateOutlinesArgs, UpdateStructElemArgs, VerifySignaturesArgs,
+    add_annotation_impl, add_mesh_shading_impl, add_page_decoration_impl,
     add_public_key_recipient_impl, add_user_properties_impl, apply_bates_numbering_impl,
     apply_operation_impl, apply_redaction_impl, attach_associated_file_impl, audit_document_impl,
     create_portfolio_impl, delete_struct_elem_impl, execute_action_impl, extract_text_impl,
-    remove_pages_impl, render_page_impl, reorder_pages_impl, rotate_pages_impl,
-    set_form_field_value_impl, set_geospatial_anchor_impl, set_measurement_scale_impl,
-    set_output_intent_impl, set_page_labels_impl, set_pronunciation_lexicon_impl,
-    set_unencrypted_wrapper_impl, update_article_threads_impl, update_layers_impl,
-    update_outlines_impl, update_struct_elem_impl, verify_signatures_impl,
+    remove_pages_impl, reorder_pages_impl, rotate_pages_impl, set_form_field_value_impl,
+    set_geospatial_anchor_impl, set_measurement_scale_impl, set_output_intent_impl,
+    set_page_labels_impl, set_pronunciation_lexicon_impl, set_unencrypted_wrapper_impl,
+    update_article_threads_impl, update_layers_impl, update_outlines_impl, update_struct_elem_impl,
+    verify_signatures_impl,
 };
 use rmcp::{
     ServiceExt,
@@ -37,7 +37,7 @@ use rmcp::{
 /// and accessibility tools via the Model Context Protocol.
 pub struct FepdfServer;
 
-#[tool_handler]
+#[tool_handler(router = Self::all_tools())]
 #[allow(unknown_lints)]
 #[allow(clippy::unused_async_trait_impl)]
 impl ServerHandler for FepdfServer {
@@ -113,13 +113,29 @@ impl ServerHandler for FepdfServer {
     }
 }
 
-#[tool_router]
+/// Every tool this build serves.
+///
+/// **Two routers rather than one**, because `#[tool_router]` collects the methods
+/// carrying `#[tool]` without looking at their `#[cfg]`: cfg-ing a tool out of the main
+/// block leaves the generated router referring to a method that no longer exists. A
+/// second block that is itself behind the feature is what the macro can see correctly.
 impl FepdfServer {
-    /// Creates a new instance of the fepdf MCP server.
-    pub fn new() -> Self {
-        Self
+    /// Every tool this build registers.
+    pub fn all_tools() -> rmcp::handler::server::router::tool::ToolRouter<Self> {
+        #[allow(unused_mut)]
+        let mut router = Self::tool_router();
+        #[cfg(feature = "render")]
+        router.merge(Self::render_tool_router());
+        router
     }
+}
 
+/// The one tool that rasterises, and the only reason this server links a GPU stack.
+///
+/// Measured 2026-09-08: 285 crates in the dependency tree with `render`, 246 without.
+#[cfg(feature = "render")]
+#[tool_router(router = render_tool_router)]
+impl FepdfServer {
     /// Renders a specific page of a PDF document to a PNG image for visual inspection.
     #[tool(
         name = "render_page",
@@ -127,9 +143,17 @@ impl FepdfServer {
     )]
     pub async fn render_page(
         &self,
-        Parameters(args): Parameters<RenderArgs>,
+        Parameters(args): Parameters<crate::tools::render::RenderArgs>,
     ) -> Result<String, String> {
-        render_page_impl(args)
+        crate::tools::render::render_page_impl(args)
+    }
+}
+
+#[tool_router]
+impl FepdfServer {
+    /// Creates a new instance of the fepdf MCP server.
+    pub fn new() -> Self {
+        Self
     }
 
     /// Performs a structural compliance audit of a PDF document.

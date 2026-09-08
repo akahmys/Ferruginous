@@ -298,9 +298,10 @@ What the enforcement taught, in order of how much it cost to learn:
   getting it wrong is not a mis-ordering: selecting three pages and inserting ascending
   clones page 0 three times, because after the first insertion the remaining indices name
   clones. A test asserts the widths and was verified by putting the bug in.
-- **`fepdf-mcp` now constructs 24 of 30** rather than all of them, and should gain the six.
+- **`fepdf-mcp` constructs every one of them**, which `status.sh` derives against the
+  enum rather than against a list kept by hand.
 
-**What this is not.** The GUI keeps its worker thread:**What this is not.** The GUI keeps its worker thread: `WorkerRequest` remains, but as
+**What this is not.** The GUI keeps its worker thread: `WorkerRequest` remains, but as
 a thin envelope (`Execute(Operation)`, plus genuinely GUI-only messages such as
 `RenderPage`). Off-thread execution is a GUI concern; the *meaning* of an operation is
 not. Equally, this is not "the GUI drives the CLI as a subprocess" — the GUI is a
