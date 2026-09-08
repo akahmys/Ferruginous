@@ -2930,6 +2930,31 @@ twin comes last, because everything above it strengthens the net that work needs
       of each sample — so `Interpreter::execute_operator` is shared, not copied. What was
       duplicated was the lexer and the operand assembly, and that is what went.
 
+- [x] **`TESTING.md` quoted a test count from a run two phases old.** It said **754
+      tests** where `cargo test --workspace` reports **800**, with the timings from that
+      same stale run. `status.sh` re-derives neither, which is why it did not read as a
+      disagreement. Every `expect 0` figure it *does* derive read 0 on 2026-09-08, so that
+      sweep is finished.
+
+      Re-measured on one machine, three consecutive runs of each form, and **twice**:
+      at 800 tests on 2026-09-08, and again on 2026-09-09 after this phase's own tests had
+      been added — the second time because one of them had made the gate 2.6x slower and
+      the figure was stale again within a day.
+
+      | | measured 2026-09-07 | measured 2026-09-09 |
+      | :--- | ---: | ---: |
+      | `cargo test --workspace` | 29-35s, 754 tests | **44.5-48.8s, 814 tests** |
+      | `cargo test --workspace --lib --bins --tests` | 26-33s | 41.2-47.9s, 814 tests |
+
+      **Both forms report the same 814**, which is the doc-test phase saying in a second
+      way that it runs no examples. The deriving command sits beside the number in
+      `TESTING.md`, which is what that file's own warning asks for.
+
+      **This entry was deleted on 2026-09-09 and restored the same day.** Rewriting the
+      parser-twin item above replaced a range that reached past it, and a finished item
+      left the record while its work stood. Counting unchecked boxes did not notice: a
+      deleted item and a completed one both leave 0 behind.
+
 - [x] **The MCP tool surface said less than it did, and the gap was not prose.** This
       entry expected two defects of documentation — two descriptions omitting that they
       execute the document's ECMAScript, and 35 of 36 descriptions being one sentence.
@@ -2964,6 +2989,27 @@ twin comes last, because everything above it strengthens the net that work needs
       description that was two sentences — is the shape the other thirty-five would take
       *if* they had something to say; manufacturing a second sentence for each would be
       writing prose against a count rather than against a defect.
+
+### What Phase U did not close
+
+Two things, both named rather than left to be rediscovered.
+
+- **A calculating form is built by hand in five test files** — `fepdf-mcp`'s
+  `calculation_scope_test.rs` and `mcp_server_tests.rs`, `fepdf-script`'s
+  `calculate_test.rs`, and `fepdf`'s `calculation_order_test.rs` and
+  `form_appearance_test.rs`. One of the five was added by this phase. It is the same
+  shape `crates/fepdf-fixtures` exists for and it crosses crates, so it belongs there;
+  it is small, and nothing depends on it being done first.
+
+      ```text
+      grep -rl "/CO \[" crates/*/tests/*.rs | wc -l   # 5
+      ```
+
+- **`[profile.dev.package]` is not tuned**, and the test suite pays for it: the nine
+  samples open twice in 5.4 seconds under `--release` and 46 under `cargo test`. Tuning
+  dependency optimisation would recover most of the difference and trades a slower first
+  build for every contributor, which is a decision to take deliberately rather than as a
+  side effect of a test getting slow. `TESTING.md` says the same beside the timings.
 
 ## Read broadly, write 2.0
 
