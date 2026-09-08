@@ -2770,36 +2770,42 @@ The order is not free. **The two gate items come first** — a large refactor un
 that cannot see part of the code puts violations in without saying so — and the parser
 twin comes last, because everything above it strengthens the net that work needs.
 
-- [ ] **Rule 1 does not see `pub(crate) fn`.** Its `awk` detector matches
+- [x] **Rule 1 did not see `pub(crate) fn`.** Its `awk` detector matched
       `^[[:space:]]*(pub )?(async )?fn `, and `pub(crate) fn` does not match `(pub )?`.
-      **86 functions across the workspace are invisible to the length limit, and 8 exceed
-      it**:
+      **86 functions across the workspace were invisible to the length limit, and 8
+      exceeded it**:
 
-      | effective lines | limit | function |
-      | ---: | ---: | :--- |
-      | 232 | 200 | `fepdf-gui` `render_status_bar` |
-      | 163 | 50 | `fepdf-content` `render_image_xobject` |
-      | 87 | 50 | `fepdf-content` `handle_text_command` |
-      | 79 | 50 | `fepdf-content` `parse_shading_object` |
-      | 78 | 50 | `fepdf-content` `handle_state_operator` |
-      | 63 | 50 | `fepdf-content` `map_text_to_glyphs` |
-      | 61 | 50 | `fepdf-content` `show_text` |
-      | 57 | 50 | `fepdf-content` `handle_xobject_operator` |
+      | effective lines | limit | function | what it took |
+      | ---: | ---: | :--- | :--- |
+      | 232 | 200 | `fepdf-gui` `render_status_bar` | split three ways |
+      | 163 | 50 | `fepdf-content` `render_image_xobject` | split four ways |
+      | 87 | 50 | `fepdf-content` `handle_text_command` | Dispatcher marker |
+      | 79 | 50 | `fepdf-content` `parse_shading_object` | two arms folded into one |
+      | 78 | 50 | `fepdf-content` `handle_state_operator` | Dispatcher marker |
+      | 63 | 50 | `fepdf-content` `map_text_to_glyphs` | split two ways |
+      | 61 | 50 | `fepdf-content` `show_text` | split two ways |
+      | 57 | 50 | `fepdf-content` `handle_xobject_operator` | split two ways |
 
       ```text
-      grep -rn "pub(crate) fn " crates/*/src --include='*.rs' | wc -l
+      grep -rn "pub(crate) fn " crates/*/src --include='*.rs' | wc -l   # 86
       ```
 
-      Three of them are dispatchers and `// RR-15 Limit: Dispatcher` is what that marker
-      is for; four are not and need splitting; `render_status_bar` passes even the GUI
-      limit of 200 and needs one or the other decided on its own. **Correcting the regex
-      alone turns the audit red immediately**, so it lands in the same commit as the
-      eight. Seven of the eight are in `fepdf-content`, which is where the blind spot was
-      widest.
+      **Correcting the regex alone turns the audit red immediately**, so it landed in the
+      same commit as the eight. Only two took the `// RR-15 Limit: Dispatcher` marker, and
+      both are one arm per content-stream operator; the other six were split, because a
+      marker that grants ten times the headroom for a function 14% over the limit is not
+      what the marker is for.
 
-      *Done when*: the detector matches `pub(crate)` and `verify_compliance.sh` ends
-      `=== AUDIT PASSED ===`; each marker added says in one line why that function
-      dispatches.
+      Two of the splits found something rather than only moving lines. `parse_shading_object`
+      read `/Coords` twice in near-identical arms for the axial and radial cases, which
+      8.7.4.5.3 and 8.7.4.5.4 differ in only by the array's length; they share
+      `read_coords` now. `show_text` asked `subtype == "Type3"` twice, **the first time
+      with an empty body**, and the second answer is the one that decided anything.
+
+      **Proved by probe**: a 55-line `pub(crate) fn` inserted before `coverage.rs`'s
+      `mod tests` fails the corrected detector and is silent to the old one. Inserting it
+      *after* `mod tests` is silent to both, which is the detector correctly reading
+      everything past that line as test code.
 
 - [x] **`scripts/audit/silent_branches.py` had a verdict nothing read.** This entry first
       said the tool was "measured and gated by nothing", and that was imprecise in two

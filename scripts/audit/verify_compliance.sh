@@ -69,7 +69,7 @@ echo "[Rule 1] Checking function length..."
 while read -r file; do
     if [[ $file == *"test"* ]]; then continue; fi
     awk '
-    /^[[:space:]]*(pub )?(async )?fn / { 
+    /^[[:space:]]*(pub(\([^)]*\))? )?(async )?fn / { 
         if ($0 ~ /mod tests/) { in_test=1; }
         if (!in_test) { 
             in_fn=1; 

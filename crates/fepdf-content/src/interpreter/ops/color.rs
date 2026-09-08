@@ -436,6 +436,33 @@ fn kind_from_name(name: &str) -> ColorSpaceKind {
     }
 }
 
+/// `/Coords`, or `defaults` where the array is absent, short, or carries a non-number.
+///
+/// The per-element default matters: a radial shading's fourth entry is a radius and 0 is
+/// not the same answer as 1 there.
+fn read_coords<const N: usize>(
+    arena: &fepdf_model::PdfArena,
+    dict: &std::collections::BTreeMap<fepdf_model::Handle<PdfName>, fepdf_model::Object>,
+    defaults: [f64; N],
+) -> [f64; N] {
+    let coords_key = arena.intern_name(PdfName::new("Coords"));
+    let Some(fepdf_model::Object::Array(ah)) = dict.get(&coords_key).map(|o| o.resolve(arena))
+    else {
+        return defaults;
+    };
+    let Some(arr) = arena.get_array(ah) else { return defaults };
+    if arr.len() < N {
+        return defaults;
+    }
+    let mut out = defaults;
+    for (slot, item) in out.iter_mut().zip(arr.iter()) {
+        if let Some(value) = item.resolve(arena).as_f64() {
+            *slot = value;
+        }
+    }
+    out
+}
+
 pub(crate) fn parse_shading_object(
     obj: &fepdf_model::Object,
     arena: &fepdf_model::PdfArena,
@@ -451,64 +478,19 @@ pub(crate) fn parse_shading_object(
     let shading_type = i32::try_from(dict.get(&st_key)?.resolve(arena).as_integer()?).ok()?;
 
     match shading_type {
-        2 => {
-            // Type 2: Axial (Linear)
-            let coords_key = arena.intern_name(PdfName::new("Coords"));
-            let coords = if let Some(fepdf_model::Object::Array(ah)) =
-                dict.get(&coords_key).map(|o| o.resolve(arena))
-                && let Some(arr) = arena.get_array(ah)
-                && arr.len() >= 4
-            {
-                [
-                    arr[0].resolve(arena).as_f64().unwrap_or(0.0),
-                    arr[1].resolve(arena).as_f64().unwrap_or(0.0),
-                    arr[2].resolve(arena).as_f64().unwrap_or(1.0),
-                    arr[3].resolve(arena).as_f64().unwrap_or(0.0),
-                ]
-            } else {
-                [0.0, 0.0, 1.0, 0.0]
-            };
-
-            let extend = read_extend(arena, &dict);
-
-            let stops = shading_stops(&dict, arena);
-
-            Some(fepdf_model::ShadingSpec::Axial(fepdf_model::AxialShading {
-                coords,
-                stops,
-                extend,
-            }))
-        }
-        3 => {
-            // Type 3: Radial
-            let coords_key = arena.intern_name(PdfName::new("Coords"));
-            let coords = if let Some(fepdf_model::Object::Array(ah)) =
-                dict.get(&coords_key).map(|o| o.resolve(arena))
-                && let Some(arr) = arena.get_array(ah)
-                && arr.len() >= 6
-            {
-                [
-                    arr[0].resolve(arena).as_f64().unwrap_or(0.0),
-                    arr[1].resolve(arena).as_f64().unwrap_or(0.0),
-                    arr[2].resolve(arena).as_f64().unwrap_or(0.0),
-                    arr[3].resolve(arena).as_f64().unwrap_or(1.0),
-                    arr[4].resolve(arena).as_f64().unwrap_or(0.0),
-                    arr[5].resolve(arena).as_f64().unwrap_or(1.0),
-                ]
-            } else {
-                [0.0, 0.0, 0.0, 1.0, 0.0, 1.0]
-            };
-
-            let extend = read_extend(arena, &dict);
-
-            let stops = shading_stops(&dict, arena);
-
-            Some(fepdf_model::ShadingSpec::Radial(fepdf_model::RadialShading {
-                coords,
-                stops,
-                extend,
-            }))
-        }
+        // 8.7.4.5.3 and 8.7.4.5.4 differ in the length of `/Coords` and in nothing else
+        // this engine reads: both take their stops from `/Function` and their `/Extend`
+        // from the same two booleans.
+        2 => Some(fepdf_model::ShadingSpec::Axial(fepdf_model::AxialShading {
+            coords: read_coords(arena, &dict, [0.0, 0.0, 1.0, 0.0]),
+            stops: shading_stops(&dict, arena),
+            extend: read_extend(arena, &dict),
+        })),
+        3 => Some(fepdf_model::ShadingSpec::Radial(fepdf_model::RadialShading {
+            coords: read_coords(arena, &dict, [0.0, 0.0, 0.0, 1.0, 0.0, 1.0]),
+            stops: shading_stops(&dict, arena),
+            extend: read_extend(arena, &dict),
+        })),
         // 8.7.4.5.5 to 8.7.4.5.8: the four mesh types. Unlike 1 to 3 these "shall be
         // represented as streams", so the geometry is in the bytes rather than the
         // dictionary and the shading object has to be a stream to carry any.

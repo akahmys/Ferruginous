@@ -8,6 +8,9 @@ const MAX_GSTATE_STACK_DEPTH: usize = 64;
 impl Interpreter<'_> {
     #[allow(clippy::many_single_char_names)]
     pub(crate) fn handle_state_operator(&mut self, op: &str) -> PdfResult<()> {
+        // RR-15 Limit: Dispatcher - one arm per graphics-state operator of Table 57, each
+        // popping that operator's own operands. Splitting it moves the operand order away
+        // from the operator name, which is the one thing a reader checks here.
         match op {
             "q" => {
                 if self.state_stack.len() < MAX_GSTATE_STACK_DEPTH {

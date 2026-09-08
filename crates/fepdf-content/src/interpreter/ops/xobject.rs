@@ -2,9 +2,11 @@ use crate::RenderBackend;
 use crate::interpreter::Interpreter;
 use fepdf_model::filters::SoftMaskInData;
 use fepdf_model::interpretation::Decision;
+use fepdf_model::object::SublimatedData;
 use fepdf_model::object::sublimation::Command;
 use fepdf_model::{Handle, Object, PdfError, PdfName, PdfResult};
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 impl Interpreter<'_> {
     pub(crate) fn handle_xobject_operator(&mut self) -> PdfResult<()> {
@@ -61,28 +63,38 @@ impl Interpreter<'_> {
                             self.record_skipped_image(&dict, name.as_str(), &e);
                         }
                     }
-                    "Form" => {
-                        self.record_transparency_group(&dict);
-                        match sd.as_ref() {
-                            fepdf_model::object::SublimatedData::Commands {
-                                items: cmds, ..
-                            } => {
-                                self.execute_form_commands(&dict, cmds)?;
-                            }
-                            // Forms not pre-parsed into commands are replayed from raw bytes.
-                            fepdf_model::object::SublimatedData::Image { .. }
-                            | fepdf_model::object::SublimatedData::Compressed { .. }
-                            | fepdf_model::object::SublimatedData::Raw(_) => {
-                                let bytes = self.doc.arena().get_stream_bytes(sd)?;
-                                self.render_form_xobject(&dict, &bytes)?;
-                            }
-                        }
-                    }
+                    "Form" => self.draw_form(&dict, sd)?,
                     _ => {}
                 }
             }
         }
         Ok(())
+    }
+
+    /// Draws a form XObject by whichever of the two routes its stream arrived on.
+    ///
+    /// **Which route is taken depends only on whether ingestion refined the stream**, not
+    /// on the document, so the same form reaches a different implementation depending on
+    /// `IngestionOptions::active_refinement`. `crates/fepdf/tests/form_xobject_test.rs`
+    /// holds the two to the same calls.
+    fn draw_form(
+        &mut self,
+        dict: &BTreeMap<Handle<PdfName>, Object>,
+        sd: &Arc<SublimatedData>,
+    ) -> PdfResult<()> {
+        self.record_transparency_group(dict);
+        match sd.as_ref() {
+            fepdf_model::object::SublimatedData::Commands { items: cmds, .. } => {
+                self.execute_form_commands(dict, cmds)
+            }
+            // Forms not pre-parsed into commands are replayed from raw bytes.
+            fepdf_model::object::SublimatedData::Image { .. }
+            | fepdf_model::object::SublimatedData::Compressed { .. }
+            | fepdf_model::object::SublimatedData::Raw(_) => {
+                let bytes = self.doc.arena().get_stream_bytes(sd)?;
+                self.render_form_xobject(dict, &bytes)
+            }
+        }
     }
 
     /// What a form's `/Group` asks for that this engine does not do (11.6.6).
@@ -363,162 +375,96 @@ impl Interpreter<'_> {
         }
     }
 
+    /// The samples an image XObject decodes to, and the alpha its own data carried.
+    ///
+    /// Two routes in, and which one is taken depends on whether ingestion refined the
+    /// stream: a `SublimatedData::Image` is already decoded and its dictionary is not
+    /// consulted, while everything else is decoded here from `/Width`, `/Height`,
+    /// `/ImageMask` and `/ColorSpace`.
+    fn decode_image_samples(
+        &self,
+        dict: &BTreeMap<Handle<PdfName>, Object>,
+        sd: &fepdf_model::object::SublimatedData,
+        in_data: SoftMaskInData,
+    ) -> PdfResult<ImageSamples> {
+        if let fepdf_model::object::SublimatedData::Image { width, height, format, data } = sd {
+            return Ok(ImageSamples {
+                width: *width,
+                height: *height,
+                format: *format,
+                samples: bytes::Bytes::copy_from_slice(data),
+                in_data_mask: None,
+            });
+        }
+
+        let data = self.doc.arena().get_stream_bytes(sd)?;
+        let width = self.dimension(dict, "Width");
+        let height = self.dimension(dict, "Height");
+
+        let im_key = self.doc.arena().intern_name(PdfName::new("ImageMask"));
+        let is_mask =
+            dict.get(&im_key).and_then(|o| o.resolve(self.doc.arena()).as_bool()).unwrap_or(false);
+        let format =
+            if is_mask { self.stencil_format(dict) } else { self.image_layout(dict, &data) };
+
+        let image = fepdf_model::filters::decode_image(&data, dict, self.doc.arena(), in_data)?;
+        let in_data_mask = image.soft_mask;
+        let samples = image.samples;
+        let (format, samples) =
+            if let Some(expanded) = expand_indexed_image(self.doc.arena(), dict, &samples) {
+                (fepdf_model::graphics::PixelFormat::Rgb8, bytes::Bytes::from(expanded))
+            } else {
+                (format, samples)
+            };
+        Ok(ImageSamples { width, height, format, samples, in_data_mask })
+    }
+
+    /// `/Width` or `/Height`, as the backend needs it: 0 when the entry is absent or
+    /// negative, which the length check below then reports against the samples.
+    fn dimension(&self, dict: &BTreeMap<Handle<PdfName>, Object>, key: &str) -> u32 {
+        let key = self.doc.arena().intern_name(PdfName::new(key));
+        u32::try_from(
+            dict.get(&key).and_then(|o| o.resolve(self.doc.arena()).as_integer()).unwrap_or(0),
+        )
+        .unwrap_or(0)
+    }
+
+    /// Which way round a stencil mask paints, from `/Decode` (8.9.6.2).
+    fn stencil_format(
+        &self,
+        dict: &BTreeMap<Handle<PdfName>, Object>,
+    ) -> fepdf_model::graphics::PixelFormat {
+        let decode_key = self.doc.arena().intern_name(PdfName::new("Decode"));
+        let inverted = if let Some(decode_obj) = dict.get(&decode_key)
+            && let Some(arr_h) = decode_obj.resolve(self.doc.arena()).as_array()
+            && let Some(arr) = self.doc.arena().get_array(arr_h)
+            && arr.len() >= 2
+        {
+            arr[0].resolve(self.doc.arena()).as_f64().unwrap_or(0.0) > 0.5
+        } else {
+            false
+        };
+        if inverted {
+            fepdf_model::graphics::PixelFormat::MonoMaskInverted
+        } else {
+            fepdf_model::graphics::PixelFormat::MonoMask
+        }
+    }
+
     pub(crate) fn render_image_xobject(
         &mut self,
         dict: &BTreeMap<Handle<PdfName>, Object>,
         sd: &fepdf_model::object::SublimatedData,
     ) -> PdfResult<()> {
-        let width_key = self.doc.arena().intern_name(PdfName::new("Width"));
-        let height_key = self.doc.arena().intern_name(PdfName::new("Height"));
-
         // 8.9.5.2: only a `/JPXDecode` image can carry its transparency inside its own
         // data, and only when `/SMaskInData` says so. Read before the decode, because it
         // decides whether the fourth channel is kept or dropped.
         let in_data = self.soft_mask_in_data(dict);
-        let mut in_data_mask = None;
 
-        let (width, height, format, decoded) = if let fepdf_model::object::SublimatedData::Image {
-            width,
-            height,
-            format,
-            data,
-        } = sd
-        {
-            (*width, *height, *format, bytes::Bytes::copy_from_slice(data))
-        } else {
-            let data = self.doc.arena().get_stream_bytes(sd)?;
-            let w = u32::try_from(
-                dict.get(&width_key)
-                    .and_then(|o| o.resolve(self.doc.arena()).as_integer())
-                    .unwrap_or(0),
-            )
-            .unwrap_or(0);
-            let h = u32::try_from(
-                dict.get(&height_key)
-                    .and_then(|o| o.resolve(self.doc.arena()).as_integer())
-                    .unwrap_or(0),
-            )
-            .unwrap_or(0);
+        let ImageSamples { width, height, format, samples: decoded, in_data_mask } =
+            self.decode_image_samples(dict, sd, in_data)?;
 
-            let im_key = self.doc.arena().intern_name(PdfName::new("ImageMask"));
-            let is_mask = dict
-                .get(&im_key)
-                .and_then(|o| o.resolve(self.doc.arena()).as_bool())
-                .unwrap_or(false);
-
-            let format = if is_mask {
-                let decode_key = self.doc.arena().intern_name(PdfName::new("Decode"));
-                let mut invert_mask = false;
-                if let Some(decode_obj) = dict.get(&decode_key)
-                    && let Some(arr_h) = decode_obj.resolve(self.doc.arena()).as_array()
-                    && let Some(arr) = self.doc.arena().get_array(arr_h)
-                    && arr.len() >= 2
-                {
-                    let first = arr[0].resolve(self.doc.arena()).as_f64().unwrap_or(0.0);
-                    if first > 0.5 {
-                        invert_mask = true;
-                    }
-                }
-                if invert_mask {
-                    fepdf_model::graphics::PixelFormat::MonoMaskInverted
-                } else {
-                    fepdf_model::graphics::PixelFormat::MonoMask
-                }
-            } else {
-                self.image_layout(dict, &data)
-            };
-
-            let image = fepdf_model::filters::decode_image(&data, dict, self.doc.arena(), in_data)?;
-            in_data_mask = image.soft_mask;
-            let decoded = image.samples;
-            let (format, decoded) =
-                if let Some(expanded) = expand_indexed_image(self.doc.arena(), dict, &decoded) {
-                    (fepdf_model::graphics::PixelFormat::Rgb8, bytes::Bytes::from(expanded))
-                } else {
-                    (format, decoded)
-                };
-            (w, h, format, decoded)
-        };
-
-        let smask_key = self.doc.arena().intern_name(PdfName::new("SMask"));
-        if in_data.expects_a_mask() && dict.contains_key(&smask_key) {
-            // 8.9.5.2 says `/SMask` shall not be present when `/SMaskInData` is non-zero.
-            // The one inside the data wins: the file put it there deliberately, and the
-            // colour of a premultiplied image has already been divided back out against
-            // it, so pairing those samples with a different mask would be wrong twice.
-            self.doc.record(Decision::violation(
-                "8.9.5.2",
-                "an image carries both /SMask and a non-zero /SMaskInData",
-                "used the mask inside the image data, which is the one the samples match",
-            ));
-        }
-        let smask_data = if let Some(mask) = in_data_mask {
-            Some(crate::SMaskData {
-                data: mask.to_vec(),
-                width,
-                height,
-                format: fepdf_model::graphics::PixelFormat::Gray8,
-            })
-        } else if in_data.expects_a_mask() {
-            // The dictionary claims a mask the codestream did not encode. Drawn opaque,
-            // which is what happened silently before any of this existed.
-            self.doc.record(Decision::violation(
-                "8.9.5.2",
-                "/SMaskInData asks for a soft mask the image data does not carry",
-                "drew the image opaque",
-            ));
-            None
-        } else if let Some(smask_obj) = dict.get(&smask_key) {
-            let smask_stream = smask_obj.resolve(self.doc.arena());
-            if let Object::Stream(dh, ref sd) = smask_stream {
-                let smask_dict = self
-                    .doc
-                    .arena()
-                    .get_dict(dh)
-                    .ok_or_else(|| PdfError::Other("SMask dictionary not found".into()))?;
-                let (sw, sh, sf, smask_decoded) =
-                    if let fepdf_model::object::SublimatedData::Image {
-                        width,
-                        height,
-                        format,
-                        data,
-                    } = sd.as_ref()
-                    {
-                        (*width, *height, *format, bytes::Bytes::copy_from_slice(data))
-                    } else {
-                        let sw = u32::try_from(
-                            smask_dict
-                                .get(&width_key)
-                                .and_then(|o| o.resolve(self.doc.arena()).as_integer())
-                                .unwrap_or(0),
-                        )
-                        .unwrap_or(0);
-                        let sh = u32::try_from(
-                            smask_dict
-                                .get(&height_key)
-                                .and_then(|o| o.resolve(self.doc.arena()).as_integer())
-                                .unwrap_or(0),
-                        )
-                        .unwrap_or(0);
-                        let smask_bytes = self.doc.arena().get_stream_bytes(sd)?;
-                        let smask_decoded =
-                            self.doc.arena().process_filters(&smask_bytes, &smask_dict)?;
-                        (sw, sh, self.detect_pixel_format(&smask_dict), smask_decoded)
-                    };
-
-                Some(crate::SMaskData {
-                    data: smask_decoded.to_vec(),
-                    width: sw,
-                    height: sh,
-                    format: sf,
-                })
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
+        let smask_data = self.soft_mask_for(dict, in_data, in_data_mask, width, height)?;
         // Sub-byte samples become bytes before a backend sees them, the way an indexed
         // image already did. A scanned page is `/DeviceGray` at one bit per component —
         // the commonest image in a scanned document and, until Phase M's own fixture
@@ -551,6 +497,88 @@ impl Interpreter<'_> {
 
         self.backend.draw_image(&decoded, width, height, format, smask_data);
         Ok(())
+    }
+
+    /// The mask a backend is handed with the image, from whichever of the two places
+    /// carries one (8.9.5.2).
+    ///
+    /// `in_data_mask` is what the codestream gave; `/SMask` is a separate stream. A file
+    /// may not present both, and when one does, the one inside the data wins — see the
+    /// `Decision` below for why.
+    fn soft_mask_for(
+        &self,
+        dict: &BTreeMap<Handle<PdfName>, Object>,
+        in_data: SoftMaskInData,
+        in_data_mask: Option<bytes::Bytes>,
+        width: u32,
+        height: u32,
+    ) -> PdfResult<Option<crate::SMaskData>> {
+        let smask_key = self.doc.arena().intern_name(PdfName::new("SMask"));
+        if in_data.expects_a_mask() && dict.contains_key(&smask_key) {
+            // 8.9.5.2 says `/SMask` shall not be present when `/SMaskInData` is non-zero.
+            // The one inside the data wins: the file put it there deliberately, and the
+            // colour of a premultiplied image has already been divided back out against
+            // it, so pairing those samples with a different mask would be wrong twice.
+            self.doc.record(Decision::violation(
+                "8.9.5.2",
+                "an image carries both /SMask and a non-zero /SMaskInData",
+                "used the mask inside the image data, which is the one the samples match",
+            ));
+        }
+        let smask_data = if let Some(mask) = in_data_mask {
+            Some(crate::SMaskData {
+                data: mask.to_vec(),
+                width,
+                height,
+                format: fepdf_model::graphics::PixelFormat::Gray8,
+            })
+        } else if in_data.expects_a_mask() {
+            // The dictionary claims a mask the codestream did not encode. Drawn opaque,
+            // which is what happened silently before any of this existed.
+            self.doc.record(Decision::violation(
+                "8.9.5.2",
+                "/SMaskInData asks for a soft mask the image data does not carry",
+                "drew the image opaque",
+            ));
+            None
+        } else if let Some(smask_obj) = dict.get(&smask_key) {
+            self.smask_from_stream(&smask_obj.resolve(self.doc.arena()))?
+        } else {
+            None
+        };
+
+        Ok(smask_data)
+    }
+
+    /// The mask a separate `/SMask` stream carries, decoded (8.9.5.4).
+    ///
+    /// Its dimensions are its own and need not match the image's: the backend scales it.
+    fn smask_from_stream(&self, stream: &Object) -> PdfResult<Option<crate::SMaskData>> {
+        let Object::Stream(dh, ref sd) = *stream else { return Ok(None) };
+        let dict = self
+            .doc
+            .arena()
+            .get_dict(dh)
+            .ok_or_else(|| PdfError::Other("SMask dictionary not found".into()))?;
+
+        if let fepdf_model::object::SublimatedData::Image { width, height, format, data } =
+            sd.as_ref()
+        {
+            return Ok(Some(crate::SMaskData {
+                data: data.clone(),
+                width: *width,
+                height: *height,
+                format: *format,
+            }));
+        }
+
+        let bytes = self.doc.arena().get_stream_bytes(sd)?;
+        Ok(Some(crate::SMaskData {
+            data: self.doc.arena().process_filters(&bytes, &dict)?.to_vec(),
+            width: self.dimension(&dict, "Width"),
+            height: self.dimension(&dict, "Height"),
+            format: self.detect_pixel_format(&dict),
+        }))
     }
 
     /// How the decoded samples are laid out, from the image's `/ColorSpace` (8.6).
@@ -796,6 +824,18 @@ fn expand_sub_byte_gray(
         }
     }
     Some(out)
+}
+
+/// What an image XObject decoded to.
+struct ImageSamples {
+    width: u32,
+    height: u32,
+    format: fepdf_model::graphics::PixelFormat,
+    samples: bytes::Bytes,
+    /// The alpha the codestream carried, when `/SMaskInData` asked for it and it was
+    /// there. `None` covers both "not asked for" and "asked for and absent", which
+    /// `render_image_xobject` tells apart from `in_data` alone.
+    in_data_mask: Option<bytes::Bytes>,
 }
 
 fn expand_indexed_image(

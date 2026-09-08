@@ -11,6 +11,9 @@ use fepdf_model::object::sublimation::Command;
 impl Interpreter<'_> {
     /// Dispatches a normalized text command to the appropriate operator handler.
     pub(crate) fn handle_text_command(&mut self, cmd: &Command) -> PdfResult<()> {
+        // RR-15 Limit: Dispatcher - one arm per `Command` a text object can carry, each
+        // pushing that command's operands and calling the handler the raw-byte path calls
+        // for the same operator. The two paths agreeing is what this shape is for.
         match cmd {
             Command::BeginText => self.handle_text_scope_operator("BT"),
             Command::EndText => self.handle_text_scope_operator("ET"),
@@ -342,51 +345,56 @@ impl Interpreter<'_> {
             is_vertical: res.wmode() == 1,
         };
 
-        if res.subtype.as_str() == "Type3" {
-            // Type 3 is handled by render_type3_glyphs which we call below for advance too
-        } else if let Some(_m) = self.text_matrices {
-            self.backend.show_text(
-                &glyphs,
-                font_size,
-                render.as_affine(),
-                text_state,
-                self.op_index,
-            );
-        }
-
-        let is_vertical = res.wmode() == 1;
-        let mut total_adv_x = 0.0;
-        let mut total_adv_y = 0.0;
-
-        if res.subtype.as_str() == "Type3" {
-            let (adv_x, adv_y) = self.render_type3_glyphs(&glyphs)?;
-            total_adv_x = adv_x;
-            total_adv_y = adv_y;
+        // **Type 3 draws through `render_type3_glyphs` and advances by what it drew**, so
+        // it neither reaches the backend here nor uses the width table below. This used to
+        // be asked twice, the first time with an empty body.
+        let (total_adv_x, total_adv_y) = if res.subtype.as_str() == "Type3" {
+            self.render_type3_glyphs(&glyphs)?
         } else {
-            for glyph in &glyphs {
-                let char_width = f64::from(glyph.width);
-                let char_width_pt = char_width / 1000.0 * font_size;
-                if is_vertical {
-                    let mut adv = char_width_pt * th - self.state.text_state.char_spacing;
-                    if glyph.char_code == 0x20 {
-                        adv -= self.state.text_state.word_spacing;
-                    }
-                    total_adv_y += adv;
-                } else {
-                    let mut adv = (char_width_pt + self.state.text_state.char_spacing) * th;
-                    if glyph.char_code == 0x20 {
-                        adv += self.state.text_state.word_spacing * th;
-                    }
-                    total_adv_x += adv;
-                }
+            if self.text_matrices.is_some() {
+                self.backend.show_text(
+                    &glyphs,
+                    font_size,
+                    render.as_affine(),
+                    text_state,
+                    self.op_index,
+                );
             }
-        }
+            self.advance_of(&glyphs, font_size, th, res.wmode() == 1)
+        };
 
         let advance_mat = Matrix::new(1.0, 0.0, 0.0, 1.0, total_adv_x, total_adv_y);
         if let Some(m) = self.text_matrices.as_mut() {
             m.tm = m.tm.concat(&advance_mat);
         }
         Ok(())
+    }
+
+    /// How far a run moves the text matrix (9.4.4).
+    ///
+    /// **Word spacing applies to the single byte 32 and not to a two-byte code that
+    /// happens to be 32** — the glyph's `char_code` is what is compared, so a CID font
+    /// whose code 0x20 is not a space does not gain the extra advance. `th` scales the
+    /// horizontal advance and, per 9.3.5, does not scale the vertical one.
+    fn advance_of(
+        &self,
+        glyphs: &[TextGlyph],
+        font_size: f64,
+        th: f64,
+        is_vertical: bool,
+    ) -> (f64, f64) {
+        let (tc, tw) = (self.state.text_state.char_spacing, self.state.text_state.word_spacing);
+        let mut total = (0.0, 0.0);
+        for glyph in glyphs {
+            let width_pt = f64::from(glyph.width) / 1000.0 * font_size;
+            let is_space = glyph.char_code == 0x20;
+            if is_vertical {
+                total.1 += width_pt * th - tc - if is_space { tw } else { 0.0 };
+            } else {
+                total.0 += (width_pt + tc) * th + if is_space { tw * th } else { 0.0 };
+            }
+        }
+        total
     }
 
     pub(crate) fn render_type3_glyphs(&mut self, glyphs: &[TextGlyph]) -> PdfResult<(f64, f64)> {
@@ -598,57 +606,67 @@ impl Interpreter<'_> {
             if i + consumed > text.len() {
                 break;
             }
-            let code = &text[i..i + consumed];
-            let cid = font.to_cid(code);
-            let char_code = if consumed == 1 {
-                u32::from(code[0])
-            } else if consumed == 2 {
-                (u32::from(code[0]) << 8) | u32::from(code[1])
-            } else {
-                cid
-            };
-
-            let (w1_y, vx, vy) =
-                if font.wmode() == 1 { font.glyph_vertical_metrics(cid) } else { (0.0, 0.0, 0.0) };
-
-            let w = if font.wmode() == 1 { w1_y } else { font.glyph_width_by_cid(cid) };
-
-            let base_font_str = font.base_font.as_str();
-            let is_japanese = base_font_str.to_lowercase().contains("mincho")
-                || base_font_str.to_lowercase().contains("gothic")
-                || base_font_str.contains("明朝")
-                || base_font_str.contains("ゴシック")
-                || font.is_cid_keyed;
-            let unicode_opt = u.or_else(|| {
-                if is_japanese && (cid == 1 || cid == 2 || cid == 3) {
-                    Some(" ".to_string())
-                } else {
-                    None
-                }
-            });
-            let unicode = unicode_opt.clone().unwrap_or_default();
-
-            let name = if let Some(ref enc) = font.encoding {
-                enc.mappings.get(code).cloned()
-            } else {
-                None
-            };
-
-            let u_char_hint = unicode_opt.as_ref().and_then(|s| s.chars().next());
-            let resolved_gid = font.resolve_gid(cid, u_char_hint, None);
-            glyphs.push(TextGlyph {
-                gid: resolved_gid.unwrap_or(0),
-                name,
-                char_code,
-                unicode,
-                width: w,
-                vx,
-                vy,
-                is_fallback: resolved_gid.is_none(),
-                source,
-            });
+            glyphs.push(self.glyph_of(font, &text[i..i + consumed], u, source));
             i += consumed;
         }
         Ok(glyphs)
     }
+
+    /// One glyph, from the bytes one code occupies and what `/ToUnicode` made of them.
+    fn glyph_of(
+        &self,
+        font: &FontResource,
+        code: &[u8],
+        unicode: Option<String>,
+        source: fepdf_model::font::UnicodeSource,
+    ) -> TextGlyph {
+        let cid = font.to_cid(code);
+        let char_code = match code {
+            [byte] => u32::from(*byte),
+            [high, low] => (u32::from(*high) << 8) | u32::from(*low),
+            _ => cid,
+        };
+
+        let vertical = font.wmode() == 1;
+        let (w1_y, vx, vy) =
+            if vertical { font.glyph_vertical_metrics(cid) } else { (0.0, 0.0, 0.0) };
+        let width = if vertical { w1_y } else { font.glyph_width_by_cid(cid) };
+
+        let unicode = unicode.or_else(|| space_for_low_cid(font, cid));
+        let hint = unicode.as_ref().and_then(|s| s.chars().next());
+        let resolved_gid = font.resolve_gid(cid, hint, None);
+
+        TextGlyph {
+            gid: resolved_gid.unwrap_or(0),
+            name: font.encoding.as_ref().and_then(|enc| enc.mappings.get(code).cloned()),
+            char_code,
+            unicode: unicode.unwrap_or_default(),
+            width,
+            vx,
+            vy,
+            is_fallback: resolved_gid.is_none(),
+            source,
+        }
+    }
+}
+
+/// The space a Japanese CID font puts at CID 1, 2 or 3 and does not map in `/ToUnicode`.
+///
+/// **A guess, and it is here rather than inline so that it reads as one.** The three CIDs
+/// are the proportional, half-width and third-width spaces of Adobe-Japan1, and a file
+/// that omits them from `/ToUnicode` extracts as three empty strings without this. The
+/// font is taken for Japanese from its `/BaseFont` name or from being CID-keyed at all,
+/// which is broader than the collection and is why this only fires for those three CIDs.
+fn space_for_low_cid(font: &FontResource, cid: u32) -> Option<String> {
+    if !matches!(cid, 1..=3) {
+        return None;
+    }
+    let name = font.base_font.as_str();
+    let lower = name.to_lowercase();
+    let japanese = lower.contains("mincho")
+        || lower.contains("gothic")
+        || name.contains("明朝")
+        || name.contains("ゴシック")
+        || font.is_cid_keyed;
+    japanese.then(|| " ".to_string())
 }
