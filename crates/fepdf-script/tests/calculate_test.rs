@@ -8,59 +8,34 @@
 use fepdf::{FormFieldSpec, FormValue, Operation, PdfDocument};
 use fepdf_script::{DocumentHandle, ScriptEnvironment, run_calculations};
 
-use fepdf_fixtures::assemble;
-
-fn field(name: &str, value: &str, calculate: &str) -> String {
-    format!(
-        "<< /Type /Annot /Subtype /Widget /FT /Tx /T ({name}) /V ({value}) \
-         /Rect [0 0 100 20] /F 4 /DA (/Helv 9 Tf 0 g) {calculate} >>"
-    )
-}
-
-fn calc(js: &str) -> String {
-    format!("/AA << /C << /S /JavaScript /JS ({js}) >> >>")
-}
+use fepdf_fixtures::{FormField, acroform, assemble};
 
 /// `total` = `a` + `b`, with `/CO` naming `total`.
 fn sum_form() -> Vec<u8> {
-    let bodies = vec![
-        "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [5 0 R 6 0 R 7 0 R] \
-         /CO [7 0 R] /DA (/Helv 9 Tf 0 g) >> >>"
-            .to_string(),
-        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
-        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [5 0 R 6 0 R 7 0 R] \
-         /Contents 4 0 R >>"
-            .to_string(),
-        "<< /Length 0 >>\nstream\n\nendstream".to_string(),
-        field("a", "2", ""),
-        field("b", "3", ""),
-        field(
-            "total",
-            "0",
-            &calc(
+    acroform(
+        &[
+            FormField::new("a", "2"),
+            FormField::new("b", "3"),
+            FormField::new("total", "0").calculating(
                 r"event.value = Number\(this.getField\('a'\).value\) \
                   + Number\(this.getField\('b'\).value\);",
             ),
-        ),
-    ];
-    assemble(&bodies)
+        ],
+        &[2],
+    )
 }
 
 /// Two fields each computed from the other, which 12.6.3 permits.
 fn cyclic_form() -> Vec<u8> {
-    let bodies = vec![
-        "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [5 0 R 6 0 R] \
-         /CO [5 0 R 6 0 R] /DA (/Helv 9 Tf 0 g) >> >>"
-            .to_string(),
-        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
-        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [5 0 R 6 0 R] \
-         /Contents 4 0 R >>"
-            .to_string(),
-        "<< /Length 0 >>\nstream\n\nendstream".to_string(),
-        field("a", "1", &calc(r"event.value = Number\(this.getField\('b'\).value\) + 1;")),
-        field("b", "1", &calc(r"event.value = Number\(this.getField\('a'\).value\) + 1;")),
-    ];
-    assemble(&bodies)
+    acroform(
+        &[
+            FormField::new("a", "1")
+                .calculating(r"event.value = Number\(this.getField\('b'\).value\) + 1;"),
+            FormField::new("b", "1")
+                .calculating(r"event.value = Number\(this.getField\('a'\).value\) + 1;"),
+        ],
+        &[0, 1],
+    )
 }
 
 fn handle(file: Vec<u8>) -> DocumentHandle {

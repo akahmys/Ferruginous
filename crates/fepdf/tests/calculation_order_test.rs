@@ -20,52 +20,23 @@
 
 use fepdf::{FormFieldSpec, FormValue, Operation, PdfDocument};
 
-use fepdf_fixtures::assemble;
+use fepdf_fixtures::{FormField, acroform};
 
 /// A form whose `total` is computed from `a` and `b`, with `/CO` naming the order.
 fn calculating_form() -> Vec<u8> {
-    let field = |name: &str, value: &str, calc: &str| {
-        format!(
-            "<< /Type /Annot /Subtype /Widget /FT /Tx /T ({name}) /V ({value}) \
-             /Rect [0 0 100 20] /F 4 /DA (/Helv 9 Tf 0 g) {calc} >>"
-        )
-    };
-    let bodies = vec![
-        "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [5 0 R 6 0 R 7 0 R] \
-         /CO [7 0 R] /DA (/Helv 9 Tf 0 g) >> >>"
-            .to_string(),
-        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
-        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [5 0 R 6 0 R 7 0 R] \
-         /Contents 4 0 R >>"
-            .to_string(),
-        "<< /Length 0 >>\nstream\n\nendstream".to_string(),
-        field("a", "2", ""),
-        field("b", "3", ""),
-        field(
-            "total",
-            "0",
-            r"/AA << /C << /S /JavaScript /JS (event.value = this.getField\('a'\).value;) >> >>",
-        ),
-    ];
-    assemble(&bodies)
+    acroform(
+        &[
+            FormField::new("a", "2"),
+            FormField::new("b", "3"),
+            FormField::new("total", "0").calculating(r"event.value = this.getField\('a'\).value;"),
+        ],
+        &[2],
+    )
 }
 
 /// The same form with no `/CO`, so nothing is declared to be calculated.
 fn plain_form() -> Vec<u8> {
-    let bodies = vec![
-        "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [5 0 R] \
-         /DA (/Helv 9 Tf 0 g) >> >>"
-            .to_string(),
-        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
-        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [5 0 R] \
-         /Contents 4 0 R >>"
-            .to_string(),
-        "<< /Length 0 >>\nstream\n\nendstream".to_string(),
-        "<< /Type /Annot /Subtype /Widget /FT /Tx /T (a) /V (2) /Rect [0 0 100 20] /F 4 \
-         /DA (/Helv 9 Tf 0 g) >>"
-            .to_string(),
-    ];
-    assemble(&bodies)
+    acroform(&[FormField::new("a", "2")], &[])
 }
 
 fn set_value(file: Vec<u8>, field: &str) -> Vec<fepdf::Decision> {

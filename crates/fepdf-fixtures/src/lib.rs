@@ -26,6 +26,89 @@ use std::fmt::Write as _;
 #[cfg(feature = "backend")]
 pub mod recorder;
 
+/// One text field of an interactive form (12.7.4.3).
+#[derive(Debug, Clone)]
+pub struct FormField {
+    /// `/T`, the field's partial name.
+    pub name: String,
+    /// `/V`, its value as the file has it — which for a calculated field is whatever it
+    /// was saved with, and need not be what the script would compute.
+    pub value: String,
+    /// The ECMAScript of `/AA` `/C`, when the field is calculated (12.6.3).
+    ///
+    /// Written as it appears inside the PDF string, so `(` and `)` need escaping:
+    /// `r"event.value = this.getField\('a'\).value;"`.
+    pub calculate: Option<String>,
+}
+
+impl FormField {
+    /// A field holding `value` and calculating nothing.
+    pub fn new(name: &str, value: &str) -> Self {
+        Self { name: name.to_string(), value: value.to_string(), calculate: None }
+    }
+
+    /// The same, computing its value from `script` when the calculation order runs it.
+    #[must_use]
+    pub fn calculating(mut self, script: &str) -> Self {
+        self.calculate = Some(script.to_string());
+        self
+    }
+}
+
+/// A one-page document whose `/AcroForm` carries `fields`, with `calculated` naming by
+/// index which of them `/CO` lists.
+///
+/// **The tedious part is the numbering**, and it is why this is here rather than in five
+/// test files: the fields are objects 5 onward, `/Fields` and `/Annots` must both list
+/// them, and `/CO` names the same objects in the order 12.6.3 runs them. Getting one of
+/// those three wrong makes a form that opens and quietly calculates nothing.
+///
+/// ```text
+/// let file = acroform(
+///     &[
+///         FormField::new("a", "2"),
+///         FormField::new("total", "0").calculating(r"event.value = 2;"),
+///     ],
+///     &[1],
+/// );
+/// ```
+pub fn acroform(fields: &[FormField], calculated: &[usize]) -> Vec<u8> {
+    const FIRST: usize = 5;
+    let refs = |indices: &[usize]| {
+        indices.iter().map(|i| format!("{} 0 R", FIRST + i)).collect::<Vec<_>>().join(" ")
+    };
+    let all: Vec<usize> = (0..fields.len()).collect();
+    let order =
+        if calculated.is_empty() { String::new() } else { format!("/CO [{}] ", refs(calculated)) };
+
+    let mut bodies = vec![
+        format!(
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [{}] \
+             {order}/DA (/Helv 9 Tf 0 g) >> >>",
+            refs(&all)
+        ),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        format!(
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [{}] \
+             /Contents 4 0 R >>",
+            refs(&all)
+        ),
+        "<< /Length 0 >>\nstream\n\nendstream".to_string(),
+    ];
+    for field in fields {
+        let calculate = field
+            .calculate
+            .as_ref()
+            .map_or_else(String::new, |js| format!("/AA << /C << /S /JavaScript /JS ({js}) >> >>"));
+        bodies.push(format!(
+            "<< /Type /Annot /Subtype /Widget /FT /Tx /T ({}) /V ({}) \
+             /Rect [0 0 100 20] /F 4 /DA (/Helv 9 Tf 0 g) {calculate} >>",
+            field.name, field.value
+        ));
+    }
+    assemble(&bodies)
+}
+
 /// A one-revision PDF whose objects are `bodies`, numbered from 1, with `/Root 1 0 R`.
 ///
 /// The caller writes the objects; this writes the cross-reference table and the trailer,

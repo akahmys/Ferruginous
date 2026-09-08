@@ -517,25 +517,14 @@ fn the_server_declares_every_capability_it_serves() {
 fn calculating_form() -> Vec<u8> {
     let script = "event.value = Number\\(this.getField\\('a'\\).value\\) + \
                   Number\\(this.getField\\('b'\\).value\\);";
-    let field = |name: &str, value: &str, calc: &str| {
-        format!(
-            "<< /Type /Annot /Subtype /Widget /FT /Tx /T ({name}) /V ({value}) \
-             /Rect [0 0 100 20] /F 4 /DA (/Helv 9 Tf 0 g) {calc} >>"
-        )
-    };
-    fepdf_fixtures::assemble(&[
-        "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [5 0 R 6 0 R 7 0 R] \
-          /CO [7 0 R] /DA (/Helv 9 Tf 0 g) >> >>"
-            .to_string(),
-        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
-        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [5 0 R 6 0 R 7 0 R] \
-          /Contents 4 0 R >>"
-            .to_string(),
-        "<< /Length 0 >>\nstream\n\nendstream".to_string(),
-        field("a", "2", ""),
-        field("b", "3", ""),
-        field("total", "0", &format!("/AA << /C << /S /JavaScript /JS ({script}) >> >>")),
-    ])
+    fepdf_fixtures::acroform(
+        &[
+            fepdf_fixtures::FormField::new("a", "2"),
+            fepdf_fixtures::FormField::new("b", "3"),
+            fepdf_fixtures::FormField::new("total", "0").calculating(script),
+        ],
+        &[2],
+    )
 }
 
 /// **Setting a field runs the form's calculation order.**

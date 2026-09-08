@@ -7,25 +7,11 @@
 //! is that: a page rotation overwrote a real date with the fixed instant the deterministic
 //! script environment uses.
 
-use fepdf_fixtures::assemble;
+use fepdf_fixtures::{FormField, acroform};
 
 /// A one-page form whose single field is in `/CO` and computes `calc`.
 fn form_that_calculates(name: &str, value: &str, calc: &str) -> Vec<u8> {
-    assemble(&[
-        "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [5 0 R] /CO [5 0 R] \
-         /DA (/Helv 9 Tf 0 g) >> >>"
-            .to_string(),
-        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
-        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [5 0 R] \
-         /Contents 4 0 R >>"
-            .to_string(),
-        "<< /Length 0 >>\nstream\n\nendstream".to_string(),
-        format!(
-            "<< /Type /Annot /Subtype /Widget /FT /Tx /T ({name}) /V ({value}) \
-             /Rect [0 0 100 20] /F 4 /DA (/Helv 9 Tf 0 g) \
-             /AA << /C << /S /JavaScript /JS ({calc}) >> >> >>"
-        ),
-    ])
+    acroform(&[FormField::new(name, value).calculating(calc)], &[0])
 }
 
 /// The value of `field` after the file at `path` is read back.
