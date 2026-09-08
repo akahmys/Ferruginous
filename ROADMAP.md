@@ -3005,11 +3005,16 @@ Two things, both named rather than left to be rediscovered.
       grep -rl "/CO \[" crates/*/tests/*.rs | wc -l   # 5
       ```
 
-- **`[profile.dev.package]` is not tuned**, and the test suite pays for it: the nine
-  samples open twice in 5.4 seconds under `--release` and 46 under `cargo test`. Tuning
-  dependency optimisation would recover most of the difference and trades a slower first
-  build for every contributor, which is a decision to take deliberately rather than as a
-  side effect of a test getting slow. `TESTING.md` says the same beside the timings.
+- ~~**`[profile.dev.package]` is not tuned**~~ **— taken, and it was worth more than the
+  entry assumed.** `opt-level = 2` for dependencies takes `cargo test --workspace` from
+  **45.9s to 27.5s**: the suite's cost is opening PDFs and the decompression under that is
+  `flate2`. The one-off price is 212 seconds to rebuild the dependency graph, recovered by
+  the eighth run, and `package."*"` leaves this workspace's own crates alone so the
+  edit-and-rebuild loop is untouched.
+
+      ```text
+      time cargo test --workspace    # 27.5s, was 45.9s
+      ```
 
 ## Read broadly, write 2.0
 

@@ -30,7 +30,7 @@ cargo test --workspace
 ```
 
 **Where the time goes, re-measured 2026-09-09 — one machine, nothing else running, three
-consecutive runs of each form.** A run with nothing to rebuild is **44 to 49 seconds** and
+consecutive runs of each form.** A run with nothing to rebuild is **27 to 28 seconds** and
 reports **814 tests**. Derive both from one run:
 
 ```bash
@@ -54,9 +54,16 @@ same conclusions, and takes 14.6 seconds of the 45. It was 46 until the two larg
 nine tenths of its cost and caught none of the three defects it has found, and both are
 compared page for page against PDFKit by `crosscheck_reading_order.sh` instead.
 
-**The cost is the debug build, not the work.** The same nine documents open twice in 5.4
-seconds under `--release`. A `[profile.dev.package]` tuning would recover most of that and
-has not been taken, because it trades a slower first build for every contributor.
+**The cost was the debug build, not the work**, and half of it is gone. The same nine
+documents open twice in 5.4 seconds under `--release`, which is what asked the question.
+Measured 2026-09-09, `[profile.dev.package."*"] opt-level = 2` takes `cargo test
+--workspace` from **45.9s to 27.5s** — the suite's cost is opening PDFs and the
+decompression under that is `flate2`, a dependency. The one-off price is **212 seconds**
+to rebuild the dependency graph, paid again whenever a dependency changes, and recovered
+by the eighth run.
+
+`package."*"` and not `[profile.dev]`: optimising this workspace's own crates would put
+that cost on every edit-and-rebuild, which is the loop a contributor is actually in.
 
 **What made the suite fast in the first place is unchanged**, and is the whole of why 814
 tests cost less than half what 591 did:
