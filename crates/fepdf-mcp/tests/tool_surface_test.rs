@@ -58,3 +58,27 @@ fn looks_like_a_tool_name(word: &str) -> bool {
     const VERBS: [&str; 8] = ["get", "set", "list", "read", "add", "remove", "render", "extract"];
     VERBS.iter().any(|v| word.starts_with(&format!("{v}_")))
 }
+
+/// Exactly the tools that run the document's ECMAScript say that they do.
+///
+/// **The cascade ran after every operation until 2026-09-09**, which no description
+/// mentioned and which `tests/calculation_scope_test.rs` shows was not harmless: a page
+/// rotation overwrote a date field with the deterministic clock's year. It is scoped to
+/// `SetFormFieldValue` now, and this holds the descriptions to that scope from the other
+/// side — a tool that gains the behaviour without gaining the sentence fails here.
+#[test]
+fn the_tools_that_run_scripts_are_the_ones_that_say_so() {
+    const RUNS_SCRIPTS: [&str; 2] = ["set_form_field_value", "apply_operation"];
+
+    let mut says = Vec::new();
+    for tool in FepdfServer::all_tools().list_all() {
+        let description = tool.description.as_deref().unwrap_or_default().to_lowercase();
+        if description.contains("calculation order") || description.contains("ecmascript") {
+            says.push(tool.name.to_string());
+        }
+    }
+    says.sort();
+    let mut expected: Vec<String> = RUNS_SCRIPTS.iter().map(|s| (*s).to_string()).collect();
+    expected.sort();
+    assert_eq!(says, expected, "the descriptions and the implementation disagree about scripts");
+}

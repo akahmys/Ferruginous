@@ -2929,22 +2929,40 @@ twin comes last, because everything above it strengthens the net that work needs
       way that it runs no examples. The deriving command now sits beside the number in
       `TESTING.md`, which is what that file's own warning asks for.
 
-- [ ] **The MCP prompt surface omits what two of its tools now do.**
-      `set_form_field_value` and `apply_operation` do not say in their descriptions that
-      they execute the document's ECMAScript, which they have since
-      [Phase R](#phase-r--running-the-documents-code) was wired. 35 of 36 tool
-      descriptions are one sentence with no statement of when not to reach for them.
+- [x] **The MCP tool surface said less than it did, and the gap was not prose.** This
+      entry expected two defects of documentation — two descriptions omitting that they
+      execute the document's ECMAScript, and 35 of 36 descriptions being one sentence.
+      Measured, the first was **31 of 36**, not two, and it was not a documentation defect.
 
-      **The third part of this is done.** `prompts.rs` named `get_structure_tree`, a tool
-      that has never existed in any commit — the structure tree is a resource. The check
-      the item asked for exists and caught it on its first run:
+      `apply_and_calculate` is the path every writing tool takes, and it ran the form's
+      calculation order after *every* operation. Its own doc comment gave the reason: a
+      form with no `/CO` returns before building a context, so restricting it "would cost
+      more to write than to skip". That is true about the cost and silent about the effect
+      on a form that has one:
 
-      ```text
-      cargo test -p fepdf-mcp --test tool_surface_test
-      ```
+      | fixture | tool called | field | before | after |
+      | :--- | :--- | :--- | ---: | ---: |
+      | `/CO` computes `total` from `a` | `rotate_pages` | `total` | `0` | `2` |
+      | `/CO` writes `new Date().getFullYear()` | `rotate_pages` | `signed_on` | `2026-09-09` | **`2020`** |
 
-      *Done when*: a description says what a caller would be surprised by, and something
-      other than review says so.
+      The second row is what settled it. `ScriptEnvironment::default()` pins the instant to
+      2020-01-01 so that two runs of the same document agree, which is right — and it means
+      a cascade run on an unrelated operation replaces a real date with a constant. That is
+      not a stale field being refreshed.
+
+      **12.6.3's trigger is a field value changing**, and `SetFormFieldValue` is the only
+      `Operation` that changes one. The cascade is scoped to it, which takes the surprise
+      out of thirty tools and leaves two descriptions to write rather than thirty-one.
+      `tests/calculation_scope_test.rs` holds both halves and was checked by putting the
+      old behaviour back; `tests/tool_surface_test.rs` holds the descriptions to the
+      implementation from the other side.
+
+      **The sentence-count half is not carried forward.** "35 of 36 are one sentence" is a
+      style measurement, and what a description owes a caller is what would surprise them.
+      One thing did, it is measured above, and it is fixed. `verify_signatures` — the one
+      description that was two sentences — is the shape the other thirty-five would take
+      *if* they had something to say; manufacturing a second sentence for each would be
+      writing prose against a count rather than against a defect.
 
 ## Read broadly, write 2.0
 

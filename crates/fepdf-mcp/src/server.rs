@@ -207,7 +207,10 @@ impl FepdfServer {
     /// Applies any canonical fepdf Operation in JSON format to mutate a PDF document.
     #[tool(
         name = "apply_operation",
-        description = "Applies any canonical fepdf Operation in JSON format to mutate a PDF document."
+        description = "Applies any canonical fepdf Operation in JSON format to mutate a PDF \
+                       document. A SetFormFieldValue operation also runs the form's \
+                       calculation order, as set_form_field_value does; no other operation \
+                       runs the document's scripts."
     )]
     pub async fn apply_operation(
         &self,
@@ -485,9 +488,16 @@ impl FepdfServer {
     }
 
     /// Fills or updates values in AcroForm interactive form fields.
+    ///
+    /// The description says the cascade because a caller would otherwise be surprised by
+    /// it: setting one field can change several, and those are the document's scripts
+    /// deciding, not this server.
     #[tool(
         name = "set_form_field_value",
-        description = "Fills or updates values in AcroForm interactive form fields."
+        description = "Fills or updates values in AcroForm interactive form fields. \
+                       If the form declares a calculation order (/CO), the document's own \
+                       ECMAScript then runs and may change other fields' values; this is \
+                       the only tool that runs it."
     )]
     pub async fn set_form_field_value(
         &self,

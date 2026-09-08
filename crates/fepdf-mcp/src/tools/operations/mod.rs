@@ -26,7 +26,7 @@ pub struct ApplyOperationArgs {
     pub operation_json: String,
 }
 
-/// Applies `op`, then runs the form's calculation order over the result.
+/// Applies `op`, and runs the form's calculation order when `op` changed a field value.
 ///
 /// **12.6.3's cascade is the frontend's to run.** Setting a field value in a form that
 /// declares `/CO` is the start of a cascade — 12.6.3 names the example directly — and
@@ -37,18 +37,30 @@ pub struct ApplyOperationArgs {
 /// through this server recorded a `Violation` of 12.6.3 saying the computed fields were
 /// now stale. They were.
 ///
-/// The order runs after every operation rather than only after `SetFormFieldValue`: a form
-/// with no `/CO` returns from `run_calculations` before building a context, so the test
-/// would cost more to write than to skip.
+/// **The order ran after every operation until 2026-09-09**, on the argument that a form
+/// with no `/CO` returns from `run_calculations` before building a context — which is true
+/// about the cost and says nothing about the effect on a form that has one. Measured:
+/// `rotate_pages` on a form whose `/CO` computes `total` from `a` moved `total` from `0`
+/// to `2`, and on a form whose `/CO` writes `new Date().getFullYear()` it overwrote
+/// `2026-09-09` with **`2020`** — the fixed instant `ScriptEnvironment::default()` uses so
+/// that two runs of the same document agree. A page rotation rewriting a date with a
+/// constant is not a stale field being refreshed.
+///
+/// 12.6.3's trigger is a field value changing, and `SetFormFieldValue` is the only
+/// `Operation` that changes one. `tests/calculation_scope_test.rs` holds both halves.
 ///
 /// **A run that does not complete puts the warning back.** Declaring a script processor
 /// and then not running one is worse than never declaring it — the engine stops naming a
 /// staleness that is now real — so the failure is recorded where `apply` would have
 /// recorded it.
 fn apply_and_calculate(doc: PdfDocument, op: Operation) -> Result<DocumentHandle, String> {
+    let changes_a_field = matches!(op, Operation::SetFormFieldValue { .. });
     doc.inner().declare_script_processor();
     let handle = DocumentHandle::new(doc);
     handle.with_mut(|d| d.apply(op)).map_err(|e| format!("Operation failed: {e:?}"))?;
+    if !changes_a_field {
+        return Ok(handle);
+    }
     if let Err(why) = run_calculations(&handle, &ScriptEnvironment::default()) {
         handle.with(|d| {
             d.inner().record(fepdf::Decision::violation(
