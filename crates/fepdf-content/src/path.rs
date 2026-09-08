@@ -7,6 +7,9 @@ use kurbo::{BezPath, Point};
 pub struct PathBuilder {
     path: BezPath,
     current_point: Option<Point>,
+    /// Where the subpath `h` closes back to (8.5.2.1). `None` until an `m` opens one,
+    /// which is what tells `close_path` there is nothing to close.
+    subpath_start: Option<Point>,
 }
 
 impl Default for PathBuilder {
@@ -19,7 +22,7 @@ impl PathBuilder {
     /// Starts an empty path with no current point.
     #[must_use]
     pub fn new() -> Self {
-        Self { path: BezPath::new(), current_point: None }
+        Self { path: BezPath::new(), current_point: None, subpath_start: None }
     }
 
     /// PDF `m`: begins a new subpath at (`x`, `y`).
@@ -27,6 +30,7 @@ impl PathBuilder {
         let p = Point::new(x, y);
         self.path.move_to(p);
         self.current_point = Some(p);
+        self.subpath_start = Some(p);
     }
 
     fn ensure_current_point(&mut self) {
@@ -68,12 +72,22 @@ impl PathBuilder {
         self.current_point = Some(p3);
     }
 
-    /// PDF `h`: closes the current subpath.
+    /// PDF `h`: closes the current subpath (8.5.2.1).
+    ///
+    /// **A stream that closes a subpath it never opened is malformed, and used to abort
+    /// the process.** `kurbo::BezPath::close_path` debug-asserts on an empty path, so
+    /// `h` before any `m` panicked rather than being ignored — found in `samples/fugaku.pdf`
+    /// by `crates/fepdf/tests/parser_twin_test.rs`. A document defect is not a crash.
+    ///
+    /// The clause also says where the current point goes: to the start of the subpath
+    /// being closed, not where the last segment ended. This tracked neither, and a
+    /// comment in its place asked the question instead of answering it.
     pub fn close_path(&mut self) {
+        if self.subpath_start.is_none() {
+            return;
+        }
         self.path.close_path();
-        // current_point remains at the point where close_path was called?
-        // Actually, PDF spec says it's the start of the subpath.
-        // But for common usage, tracking it after close is tricky.
+        self.current_point = self.subpath_start;
     }
 
     /// PDF `re`: appends a closed rectangle as a complete subpath.

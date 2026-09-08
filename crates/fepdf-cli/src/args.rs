@@ -9,7 +9,13 @@ use std::path::PathBuf;
 #[allow(clippy::struct_excessive_bools)]
 #[derive(clap::Args, Debug, Clone)]
 pub struct IngestArgs {
-    /// Disable active 2-pass refinement (UTF-8 normalization)
+    /// Disable active 2-pass refinement: metadata is not normalised, and content streams
+    /// are sublimated when they are interpreted rather than when the file is opened.
+    ///
+    /// **The help said "UTF-8 normalization" alone until 2026-09-09**, and a caller who
+    /// read that and reached for it got a page missing 288 Type 3 glyphs and every marked
+    /// content section — the interpreter had a second, incomplete reader for unrefined
+    /// streams. It has one reader now, so this flag costs what it says and no more.
     #[arg(long)]
     pub no_refinement: bool,
     // Visible again: ADR-0007 hid this because nothing read `sublime_metadata`, and

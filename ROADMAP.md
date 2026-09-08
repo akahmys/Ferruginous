@@ -2894,40 +2894,41 @@ twin comes last, because everything above it strengthens the net that work needs
       the names a prompt uses against the router, and **failed on the first run**, on
       `get_structure_tree` — which is what that item said and what nothing had checked.
 
-- [ ] **Two content-stream parsers.** `crates/fepdf-model/src/object/sublimation/parser.rs`
-      is 836 lines and `crates/fepdf-content/src/interpreter/` is 3,892; the code itself
-      calls the second the twin of the first. The duplication is semantic rather than
-      textual, so the block scanner sees one shared block and the rest is invisible to it.
+- [x] **Two content-stream readers, and they were not peers.** This entry called them a
+      semantic duplicate of 836 lines against 3,892, on the strength of a comment calling
+      one "the twin" of the other — which is attached to a single function, not to the
+      subsystems. Measured, the shape is different and worse: they handle **66 of the same
+      operators**, and the interpreter's raw-byte path is not an equal reader but an
+      incomplete one that only works because refinement normally runs first.
+      `ops/marked.rs` said so in its own words: *`BMC`, `BDC` and `EMC` become
+      `Command::BeginMarkedContent` and `Command::EndMarkedContent` in the parser and
+      arrive through those arms.*
 
-      ```text
-      wc -l crates/fepdf-model/src/object/sublimation/parser.rs
-      find crates/fepdf-content/src/interpreter -name '*.rs' | xargs wc -l | tail -1
-      ```
+      **The characterisation test came first, as this item required, and found two defects
+      before a line was merged.** `crates/fepdf/tests/parser_twin_test.rs` runs the same
+      bytes down both paths and compares the backend calls — five synthetic streams and
+      the nine samples, every page.
 
-      **This is the one item here that can go wrong quietly**, and it is last for that
-      reason. The two form-XObject paths were the same shape at a tenth of the size, and
-      the test that caught them disagreeing was written before either was touched.
+      | | found on | effect |
+      | :--- | :--- | :--- |
+      | `Interpreter::execute` applied no `/Filter` | `fugaku.pdf`, `--no-refinement` | 3,203 operators lexed out of a zlib header; **288 Type 3 glyphs not drawn** |
+      | `h` before any `m` | `fugaku.pdf` | `kurbo` debug-asserts, so a malformed stream **aborted the process** |
+      | marked content absent from the raw path | `fugaku.pdf` | 196 calls the refined path made; hidden optional content drawn, `/ActualText` unread |
 
-      *Done when*: a characterisation test shows the two reach the same conclusion on the
-      same input — the shape of `both_form_implementations_produce_the_same_calls` — and
-      it exists **before** any merging starts.
+      `--no-refinement` is a CLI flag whose help says "Disable active 2-pass refinement
+      (UTF-8 normalization)", so a caller reaching for it to skip text normalisation got a
+      page missing its glyphs and its marked content.
 
-- [x] **`TESTING.md` quoted a test count from a run two phases old.** It said **754
-      tests** where `cargo test --workspace` reports **800**, with the timings from that
-      same stale run. `status.sh` re-derives neither, which is why it did not read as a
-      disagreement. Every `expect 0` figure it *does* derive read 0 on 2026-09-08, so that
-      sweep is finished.
+      **One reader now**: `execute_raw` sublimates the bytes and executes the `Command`s,
+      which is what the refined path already did. The corpus agrees call for call.
 
-      Re-measured on one machine, three consecutive runs of each form:
-
-      | | measured 2026-09-07 | measured 2026-09-08 |
-      | :--- | ---: | ---: |
-      | `cargo test --workspace` | 29–35s, 754 tests | **28.8–31.6s, 800 tests** |
-      | `cargo test --workspace --lib --bins --tests` | 26–33s | 25.4–31.5s, 800 tests |
-
-      **Both forms report the same 800**, which is the doc-test phase saying in a second
-      way that it runs no examples. The deriving command now sits beside the number in
-      `TESTING.md`, which is what that file's own warning asks for.
+      Two things the measurement corrected on the way. `close_path` also left the current
+      point where the last segment ended rather than at the subpath's start (8.5.2.1),
+      with a comment in place of an answer. And **the operator dispatch was never the
+      duplicate**: `v`, `y`, `n`, `gs`, `scn` and `i` are deliberately passed through as
+      `Command::RawOperator` for the interpreter to handle — 1,386 times over three pages
+      of each sample — so `Interpreter::execute_operator` is shared, not copied. What was
+      duplicated was the lexer and the operand assembly, and that is what went.
 
 - [x] **The MCP tool surface said less than it did, and the gap was not prose.** This
       entry expected two defects of documentation — two descriptions omitting that they

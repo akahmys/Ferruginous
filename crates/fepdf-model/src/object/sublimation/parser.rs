@@ -18,6 +18,14 @@ pub struct Sublimator<'a> {
     stroke_color_space: crate::graphics::ColorSpaceKind,
     current_stroke_style: crate::graphics::StrokeStyle,
     decisions: Vec<crate::interpretation::Decision>,
+    /// For each command emitted, which operator of the source stream produced it.
+    ///
+    /// **Counted the way a second pass over the same bytes would count**, one-based over
+    /// every keyword token, because the one consumer is exactly that: redaction collects
+    /// text runs through the interpreter and then re-lexes the stream to scrub the strings
+    /// those runs came from. One `Tf` can emit two commands, so the mapping is not the
+    /// position in the returned vector and cannot be recovered from it.
+    operator_indices: Vec<usize>,
 }
 
 impl<'a> Sublimator<'a> {
@@ -28,6 +36,7 @@ impl<'a> Sublimator<'a> {
             stack: Vec::new(),
             current_font: None,
             decisions: Vec::new(),
+            operator_indices: Vec::new(),
             fill_color_space: crate::graphics::ColorSpaceKind::DeviceGray,
             stroke_color_space: crate::graphics::ColorSpaceKind::DeviceGray,
             current_stroke_style: crate::graphics::StrokeStyle {
@@ -87,6 +96,15 @@ impl<'a> Sublimator<'a> {
 
     /// Parses a content stream into drawing commands.
     /// The interpretation decisions taken while sublimating, and clears them.
+    /// Which source operator produced each command of the last `sublimate`.
+    ///
+    /// Empty for a stream that took the resurrection path, which has no source operators
+    /// to count.
+    pub fn operator_indices(&self) -> &[usize] {
+        &self.operator_indices
+    }
+
+    /// The departures this pass recorded, leaving the sublimator with none.
     pub fn take_decisions(&mut self) -> Vec<crate::interpretation::Decision> {
         std::mem::take(&mut self.decisions)
     }
@@ -142,6 +160,7 @@ impl<'a> Sublimator<'a> {
         }
 
         let mut commands = Vec::new();
+        let mut operator_index = 0_usize;
         let mut lexer = Lexer::new(bytes::Bytes::copy_from_slice(data));
 
         loop {
@@ -158,11 +177,14 @@ impl<'a> Sublimator<'a> {
 
             match token {
                 Token::Keyword(kw) => {
+                    operator_index += 1;
                     if kw == "BI" {
                         let cmd = self.parse_inline_image(&mut lexer);
                         commands.push(cmd);
+                        self.operator_indices.push(operator_index);
                     } else {
                         let mut cmds = self.handle_operator(&kw, &commands);
+                        self.operator_indices.resize(commands.len() + cmds.len(), operator_index);
                         commands.append(&mut cmds);
                     }
                 }

@@ -4,10 +4,8 @@ use crate::interpreter::ops::marked::MarkedSection;
 use crate::path::PathBuilder;
 use fepdf_model::graphics::{GraphicsState, Rect, TextMatrices, WindingRule};
 use fepdf_model::interpretation::Decision;
-use fepdf_model::lexer::Token;
 use fepdf_model::object::sublimation::Command;
 use fepdf_model::optional_content::OptionalContentState;
-use fepdf_model::parser::Parser;
 use fepdf_model::{Document, Handle, Object, PdfError, PdfName, PdfResult};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -181,7 +179,7 @@ impl<'a> Interpreter<'a> {
         // that are sensitive to raw stream ordering. We prefer raw execution
         // for these contexts to ensure rendering fidelity.
         if self.in_type3_glyph {
-            let data = self.doc.arena().get_stream_bytes(&sublimated)?;
+            let data = self.decoded_stream(stream_h, &sublimated)?;
             return self.execute_raw(&data);
         }
 
@@ -193,73 +191,69 @@ impl<'a> Interpreter<'a> {
             fepdf_model::object::SublimatedData::Image { .. }
             | fepdf_model::object::SublimatedData::Compressed { .. }
             | fepdf_model::object::SublimatedData::Raw(_) => {
-                let data = self.doc.arena().get_stream_bytes(&sublimated)?;
+                let data = self.decoded_stream(stream_h, &sublimated)?;
                 self.execute_raw(&data)
             }
         }
     }
 
-    /// Executes a raw PDF content stream, tokenizing and dispatching each operator.
+    /// A stream's bytes with its `/Filter` applied, whether or not ingestion applied it.
+    ///
+    /// **`get_stream_bytes` undoes the arena's own compression and nothing else.** With
+    /// `IngestionOptions::active_refinement` on, refinement has already decoded every
+    /// stream and removed `/Filter` from its dictionary, so this is a second no-op. With
+    /// it off — `fepdf --no-refinement` — the dictionary still names the filter and the
+    /// bytes are still encoded, and this used to hand them to the lexer: page 1 of
+    /// `samples/fugaku.pdf` recorded **3,203 unknown operators** with names like
+    /// `x\u{9c}UWK`, which is a zlib header being read as a content stream, and lost 288
+    /// Type 3 glyphs to it. Found by `crates/fepdf/tests/parser_twin_test.rs`.
+    fn decoded_stream(
+        &self,
+        stream_h: Handle<Object>,
+        sublimated: &fepdf_model::object::SublimatedData,
+    ) -> PdfResult<bytes::Bytes> {
+        let raw = self.doc.arena().get_stream_bytes(sublimated)?;
+        let Some(Object::Stream(dh, _)) = self.doc.arena().get_object(stream_h) else {
+            return Ok(raw);
+        };
+        let Some(dict) = self.doc.arena().get_dict(dh) else { return Ok(raw) };
+        self.doc.arena().process_filters(&raw, &dict)
+    }
+
+    /// Interprets a content stream from its bytes, by sublimating them first.
+    ///
+    /// **There was a second reader here until 2026-09-09.** This lexed the bytes itself
+    /// and dispatched each operator, which made it a peer of
+    /// `fepdf_model::object::sublimation::Sublimator` — except that it was not one. The
+    /// two handled 66 of the same operators and the sublimator five more, and
+    /// `ops/marked.rs` said so in its own words: *`BMC`, `BDC` and `EMC` become
+    /// `Command::BeginMarkedContent` and `Command::EndMarkedContent` in the parser and
+    /// arrive through those arms.* A stream that reached this function instead — which is
+    /// what `fepdf --no-refinement` produces — had its marked content dropped, so an
+    /// optional-content section that should have been hidden was drawn and `/ActualText`
+    /// was not read. Measured on `samples/fugaku.pdf`: 196 backend calls that the refined
+    /// path made and this one did not.
+    ///
+    /// One reader now. `crates/fepdf/tests/parser_twin_test.rs` is what holds it to the
+    /// other path's conclusions.
     pub fn execute_raw(&mut self, data: &[u8]) -> PdfResult<()> {
         if data.is_empty() {
             return Ok(());
         }
-
-        let mut parser = Parser::new(bytes::Bytes::copy_from_slice(data), self.doc.arena());
-
-        loop {
-            // **Not `while let Ok(..)`.** That form ended the loop on a lexer failure and
-            // returned `Ok(())`, so a stream that stopped being readable partway was
-            // reported as one that ran to the end — the caller drew, or extracted, or
-            // inferred structure from whatever had been reached and could not tell that
-            // anything was missing. Six pages of `samples/fy05.pdf` are the reason the
-            // operator errors below carry their index; this is the same need one level up.
-            //
-            // Recorded rather than propagated: what was executed before the stream became
-            // unreadable is on the page, and refusing to draw it would lose more than it
-            // reports (7.8.2 makes the stream's content the page's content, not an
-            // all-or-nothing declaration).
-            let token = match parser.peek() {
-                Ok(token) => token,
-                Err(e) => {
-                    self.doc.record(Decision::violation(
-                        "7.8.2",
-                        format!(
-                            "the content stream stopped being readable after operator {}: {e}",
-                            self.op_index
-                        ),
-                        "kept what had already been executed and stopped there",
-                    ));
-                    return Ok(());
-                }
-            };
-            if token == Token::EOF {
-                break;
-            }
-            match token {
-                Token::Keyword(ref op) => {
-                    let op_str = op.clone();
-
-                    let _ = parser.next_token()?; // Consume operator
-                    if self.in_type3_glyph {
-                        log::debug!("[TYPE3] op={}, stack={:?}", op_str, self.stack);
-                    }
-                    self.op_index += 1;
-                    // Named, because the operand errors below cannot see which operator
-                    // asked for them. "Expected number" on its own says nothing about
-                    // where in a content stream to look, and six pages of
-                    // `samples/fy05.pdf` failed with exactly that and nothing else.
-                    self.execute_operator(&op_str).map_err(|e| {
-                        PdfError::Other(
-                            format!("operator {op_str} at {}: {e}", self.op_index).into(),
-                        )
-                    })?;
-                }
-                _ => {
-                    let obj = parser.parse_object()?;
-                    self.stack.push(obj);
-                }
-            }
+        let fonts = self.resource_fonts();
+        let mut sublimator = fepdf_model::object::sublimation::parser::Sublimator::new(&fonts);
+        let commands = sublimator.sublimate(data);
+        let indices = sublimator.operator_indices().to_vec();
+        for decision in sublimator.take_decisions() {
+            self.doc.record(decision);
+        }
+        // `op_index` names an operator of *these bytes*, because the only thing that reads
+        // it re-lexes them: `fepdf-doc`'s redaction collects text runs here and then
+        // scrubs the strings the same operators carry. Counting commands instead would
+        // drift the moment one operator emitted two, which `Tf` does.
+        for (position, command) in commands.iter().enumerate() {
+            self.op_index = indices.get(position).copied().unwrap_or(position + 1);
+            self.execute_single_command(command)?;
         }
         Ok(())
     }
@@ -682,6 +676,37 @@ impl<'a> Interpreter<'a> {
         self.marked_sections = enclosing;
         self.backend.restore_hidden_depth(hidden);
         outcome
+    }
+
+    /// The `/Font` entries the current resource scope names, for the sublimator.
+    ///
+    /// **Loaded rather than resolved lazily**, which is the one thing this costs. The
+    /// interpreter resolves a font when a `Tf` selects it; the sublimator wants the map up
+    /// front, because it emits `SetWritingMode` beside `SetFont` and records a 9.6.2
+    /// repair for a name the resources do not define. Only streams that were not refined
+    /// reach here, so a page whose contents ingestion already turned into `Command`s pays
+    /// nothing.
+    fn resource_fonts(&self) -> BTreeMap<String, std::sync::Arc<fepdf_model::font::FontResource>> {
+        let arena = self.doc.arena();
+        let font_key = arena.intern_name(PdfName::new("Font"));
+        let mut fonts = BTreeMap::new();
+        for &res_dh in self.resource_stack.iter().rev() {
+            let Some(dict) = arena.get_dict(res_dh) else { continue };
+            let Some(font_dh) = dict.get(&font_key).and_then(|o| o.resolve(arena).as_dict_handle())
+            else {
+                continue;
+            };
+            let Some(font_dict) = arena.get_dict(font_dh) else { continue };
+            for (name_h, entry) in &font_dict {
+                let Some(name) = arena.get_name(*name_h) else { continue };
+                let handle =
+                    entry.as_reference().unwrap_or_else(|| arena.alloc_object(entry.clone()));
+                if let Ok(res) = self.doc.get_font(handle) {
+                    fonts.entry(name.as_str().to_string()).or_insert(res);
+                }
+            }
+        }
+        fonts
     }
 
     pub(crate) fn find_resource(
