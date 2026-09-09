@@ -181,12 +181,28 @@ fn the_two_readers_agree_on_clipping_and_marked_content() {
 /// Two files this comparison does not open, and what that costs.
 ///
 /// **A cost decision, measured rather than assumed.** Opening a document twice — once
-/// refined, once not — is what this test pays for, and in a debug build these two are
-/// nine tenths of it: with them the binary runs in 46 seconds and without them in 4.3.
+/// refined, once not — is what this test pays for, and when these two were excluded they
+/// were nine tenths of it: with them the binary ran 46 seconds and without them 4.3.
 /// Re-introducing the `/Filter` defect this test was written for is still caught without
 /// them, by `fugaku.pdf`, so the ninety per cent bought no detection of anything this has
 /// found. Both are compared page for page against PDFKit by
 /// `scripts/test/crosscheck_reading_order.sh`, which is where their size earns its keep.
+///
+/// **The 4.3 is now 9.1** — measured 2026-09-10, seven samples — because samples were
+/// added afterwards, and the per-sample cost is worth having here because **file size
+/// does not predict it**:
+///
+/// ```text
+/// unicode_16.pdf     12M   3.43s
+/// volvo_xc90.pdf     27M   1.88s
+/// print_sample.pdf  3.5M   0.78s
+/// ```
+///
+/// `volvo_xc90.pdf` is the largest file in `samples/` and costs half what a file less
+/// than half its size does, so "exclude the largest" is not the rule this list follows.
+/// The rule is the one above: measured cost against measured detection. Nothing has been
+/// excluded on size, and `unicode_16.pdf` in particular stays — a test comparing two
+/// readers of operators should not drop the sample richest in them.
 ///
 /// Deleting these two names is how to put them back.
 const TOO_SLOW_IN_A_DEBUG_BUILD: [&str; 2] = ["intel_sdm.pdf", "fy05.pdf"];

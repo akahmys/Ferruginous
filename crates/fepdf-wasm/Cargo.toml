@@ -40,6 +40,9 @@ thiserror.workspace = true
 getrandom = { version = "0.2", features = ["js"] }
 
 [dev-dependencies]
+# ADR-0083: the shared assembler. A dev-dependency, so Rule A's "frontends declare only
+# the facade" does not reach it — `layering.py` scopes that rule to runtime dependencies.
+fepdf-fixtures.workspace = true
 serde_json.workspace = true
 # RR-15 Rule 11: what crosses into JavaScript is a string, and what this crate returns to
 # itself is a typed error. The boundary is where the two meet, not where the type is lost.
