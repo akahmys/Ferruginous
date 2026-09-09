@@ -66,6 +66,46 @@ pub enum ShadingSpec {
     /// bytes — and reusing it here meant the read side had a variant it could never fill.
     /// Nothing constructed this before Phase P.
     Mesh(TriangleMesh),
+    /// Type 1, function-based (8.7.4.5.2): the colour at a point is `f(x, y)`.
+    ///
+    /// **Sampled here rather than carried as a function.** The other four types reach a
+    /// renderer as geometry it can draw — a gradient or a triangle — and a `/Function`
+    /// would make this the one that needs an evaluator on the other side of the contract.
+    /// It is a grid of colours and says so, the way [`ShadingSpec::Axial`]'s stops are a
+    /// sampling of the same functions.
+    FunctionBased(FunctionShading),
+}
+
+/// A Type 1 shading's colours over its domain (8.7.4.5.2).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FunctionShading {
+    /// `/Domain`, as `[x0, x1, y0, y1]`. Defaults to the unit square.
+    pub domain: [f64; 4],
+    /// `/Matrix`, which maps the domain onto the target coordinate space.
+    pub matrix: [f64; 6],
+    /// The colour at each grid point, row-major over `resolution` by `resolution`.
+    pub samples: Vec<Color>,
+    /// The grid's side. One means a single colour over the whole domain.
+    pub resolution: usize,
+}
+
+impl FunctionShading {
+    /// The cells of the grid, each as its rectangle in domain space and its colour.
+    ///
+    /// **The rectangle, not the point.** A renderer painting points leaves the gaps
+    /// between them unpainted; painting each sample's cell covers the domain, which is
+    /// what 8.7.4.5.2 says the shading does.
+    pub fn cells(&self) -> impl Iterator<Item = ([f64; 4], Color)> + '_ {
+        let [x0, x1, y0, y1] = self.domain;
+        let n = self.resolution.max(1);
+        let (dx, dy) = ((x1 - x0) / n as f64, (y1 - y0) / n as f64);
+        self.samples.iter().enumerate().take(n * n).map(move |(index, colour)| {
+            let (row, column) = (index / n, index % n);
+            let left = x0 + dx * column as f64;
+            let bottom = y0 + dy * row as f64;
+            ([left, bottom, left + dx, bottom + dy], *colour)
+        })
+    }
 }
 
 /// Pattern specification (ISO 32000-2 Section 8.7).

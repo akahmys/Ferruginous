@@ -632,6 +632,28 @@ impl RenderBackend for VelloBackend {
         // A mesh is painted as itself rather than through a brush: Vello fills a path
         // with one colour, so a Gouraud triangle has no brush, and the model hands back
         // flat pieces small enough that the difference is under a pixel.
+        // 8.7.4.5.2: a grid of colours over a domain, placed by the shading's own matrix.
+        // Painted cell by cell for the same reason a mesh is painted triangle by triangle:
+        // vello has a brush for a gradient and none for an arbitrary function of two
+        // variables, and filling the cells is the shading rather than an approximation of
+        // a gradient that is not there.
+        if let ShadingSpec::FunctionBased(function) = shading {
+            let alpha = self.state.fill_alpha as f32;
+            let m = function.matrix;
+            let placement =
+                self.state.transform * kurbo::Affine::new([m[0], m[1], m[2], m[3], m[4], m[5]]);
+            for (cell, colour) in function.cells() {
+                self.scene.fill(
+                    vello::peniko::Fill::NonZero,
+                    placement,
+                    &vello::peniko::Brush::Solid(to_peniko_color(&colour, alpha)),
+                    None,
+                    &kurbo::Rect::new(cell[0], cell[1], cell[2], cell[3]),
+                );
+            }
+            return;
+        }
+
         if let ShadingSpec::Mesh(mesh) = shading {
             let alpha = self.state.fill_alpha as f32;
             let bleed = seam_bleed(self.state.transform);
@@ -905,6 +927,13 @@ fn to_vello_shading_brush(shading: &ShadingSpec, alpha: f32) -> vello::peniko::B
         // brush that represents it. `paint_shading` draws the triangles instead; this
         // arm is only reached through a *pattern* fill, where one brush is all the caller
         // can take, and the mean is a better answer than the black that used to be here.
+        // As a *brush* a function shading is one colour, which is what a brush can be.
+        // `sh` paints it properly above; this is the `scn` path, where the shading fills
+        // a path rather than the clip region and vello wants a single paint.
+        ShadingSpec::FunctionBased(function) => vello::peniko::Brush::Solid(to_peniko_color(
+            &average_colour(function.samples.iter().copied()),
+            alpha,
+        )),
         ShadingSpec::Mesh(mesh) => {
             vello::peniko::Brush::Solid(to_peniko_color(&mesh_average(mesh), alpha))
         }
@@ -955,15 +984,23 @@ fn grown_triangle(points: [(f64, f64); 3], bleed: f64) -> kurbo::BezPath {
 
 /// The mean of every corner colour in a mesh, for the one place a mesh must become a
 /// single brush.
+/// The mean of a mesh's corner colours, for the one paint a brush can be.
 fn mesh_average(mesh: &fepdf_model::graphics::TriangleMesh) -> Color {
+    average_colour(mesh.triangles.iter().flat_map(|t| t.colors.iter().copied()))
+}
+
+/// The mean of some colours in RGB, or black where none of them convert.
+///
+/// **Shared by the two shadings a brush cannot express.** A mesh and a function of two
+/// variables both reduce to one paint when `scn` fills a path with them, and both did so
+/// through the same arithmetic written twice.
+fn average_colour(colours: impl Iterator<Item = Color>) -> Color {
     let mut total = (0.0_f64, 0.0_f64, 0.0_f64);
     let mut count = 0.0_f64;
-    for triangle in &mesh.triangles {
-        for color in &triangle.colors {
-            if let Color::Rgb(r, g, b) = color.to_rgb() {
-                total = (total.0 + r, total.1 + g, total.2 + b);
-                count += 1.0;
-            }
+    for colour in colours {
+        if let Color::Rgb(r, g, b) = colour.to_rgb() {
+            total = (total.0 + r, total.1 + g, total.2 + b);
+            count += 1.0;
         }
     }
     if count == 0.0 {

@@ -22,7 +22,9 @@ fn test_shading_spec_construction() {
             assert_eq!(a.stops[0].offset, 0.0);
             assert_eq!(a.stops[1].offset, 1.0);
         }
-        ShadingSpec::Radial(_) | ShadingSpec::Mesh(_) => panic!("Expected Axial shading"),
+        ShadingSpec::Radial(_) | ShadingSpec::Mesh(_) | ShadingSpec::FunctionBased(_) => {
+            panic!("Expected Axial shading")
+        }
     }
 
     let radial = RadialShading {
@@ -36,6 +38,8 @@ fn test_shading_spec_construction() {
             assert_eq!(r.coords, [50.0, 50.0, 0.0, 50.0, 50.0, 100.0]);
             assert_eq!(r.extend, [false, true]);
         }
-        ShadingSpec::Axial(_) | ShadingSpec::Mesh(_) => panic!("Expected Radial shading"),
+        ShadingSpec::Axial(_) | ShadingSpec::Mesh(_) | ShadingSpec::FunctionBased(_) => {
+            panic!("Expected Radial shading")
+        }
     }
 }

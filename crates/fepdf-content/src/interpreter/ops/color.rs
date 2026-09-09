@@ -507,8 +507,74 @@ pub(crate) fn parse_shading_object(
             )?;
             Some(fepdf_model::ShadingSpec::Mesh(mesh))
         }
+        // 8.7.4.5.2: the colour at a point is `f(x, y)` over `/Domain`, placed by
+        // `/Matrix`. Sampled into a grid here, because the other four types reach the
+        // renderer as geometry and a function would make this the one that needs an
+        // evaluator on the far side of the contract.
+        1 => function_shading(&dict, arena).map(fepdf_model::ShadingSpec::FunctionBased),
         _ => None,
     }
+}
+
+/// How finely a Type 1 shading's domain is sampled, per side.
+///
+/// **A grid of 32 by 32, and it is a sampling.** The 1D case uses 33 points so that a
+/// `/Bounds` at a half, quarter or eighth lands exactly on one; there is no equivalent
+/// property in two dimensions, and a function with a step between samples is approximated
+/// rather than solved. Bigger costs the square: 64 would be four times the cells for a
+/// difference no page of the corpus presents — one file of 524 carries a Type 1 shading
+/// at all.
+const FUNCTION_GRID: u16 = 32;
+
+/// A Type 1 shading, evaluated over its domain (8.7.4.5.2).
+fn function_shading(
+    dict: &BTreeMap<Handle<PdfName>, Object>,
+    arena: &PdfArena,
+) -> Option<fepdf_model::graphics::FunctionShading> {
+    let func_key = arena.intern_name(PdfName::new("Function"));
+    let functions = FunctionSet::parse(dict.get(&func_key)?, arena)?;
+    let space = shading_space(dict, arena);
+    let domain = read_coords(arena, &dict_with(arena, dict, "Domain"), [0.0, 1.0, 0.0, 1.0]);
+    let matrix =
+        read_coords(arena, &dict_with(arena, dict, "Matrix"), [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]);
+
+    let [x0, x1, y0, y1] = domain;
+    // The centre of cell `i`, not its corner: a sample taken at the edge of a domain is
+    // the colour of a boundary rather than of the cell it stands for.
+    let side = f64::from(FUNCTION_GRID);
+    let step = |lo: f64, hi: f64, i: u16| lo + (hi - lo) * (f64::from(i) + 0.5) / side;
+    let cells = usize::from(FUNCTION_GRID) * usize::from(FUNCTION_GRID);
+    let mut samples = Vec::with_capacity(cells);
+    for row in 0..FUNCTION_GRID {
+        for column in 0..FUNCTION_GRID {
+            let components = functions.eval(&[step(x0, x1, column), step(y0, y1, row)])?;
+            let colour = match &space {
+                Some(sp) => sp.to_color(&components)?,
+                None => ResolvedColorSpace::color_from_components(&components)?,
+            };
+            samples.push(colour);
+        }
+    }
+    Some(fepdf_model::graphics::FunctionShading {
+        domain,
+        matrix,
+        samples,
+        resolution: usize::from(FUNCTION_GRID),
+    })
+}
+
+/// A dictionary holding just `key`, so `read_coords` can be reused for `/Domain` and
+/// `/Matrix` as it is for `/Coords`.
+fn dict_with(
+    arena: &PdfArena,
+    dict: &BTreeMap<Handle<PdfName>, Object>,
+    key: &str,
+) -> BTreeMap<Handle<PdfName>, Object> {
+    let mut out = BTreeMap::new();
+    if let Some(value) = dict.get(&arena.intern_name(PdfName::new(key))) {
+        out.insert(arena.intern_name(PdfName::new("Coords")), value.clone());
+    }
+    out
 }
 
 pub(crate) fn parse_pattern_object(

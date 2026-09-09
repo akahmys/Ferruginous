@@ -136,7 +136,7 @@ survive that test as refusals — nothing here depends on them, and both are dep
 | **7.6** Encryption | Every password handler the standard defines, and the public-key ones. [↓](#76-encryption) |
 | **7.7** Document structure | 23 of Table 29's 32 entries modelled; 10 occur in no file of 524. [↓](#77-document-structure) |
 | **PDF 2.0 additions** | Re-derived against all 524 files, 0 unreadable. [↓](#pdf-20-additions) |
-| **8** Graphics | Optional content honoured, tint transforms and shading functions evaluated. Type 1 shading is not read, and says so. [↓](#8-graphics) |
+| **8** Graphics | Optional content honoured, tint transforms and shading functions evaluated. All five shading types read, Type 1 as a sampled grid. [↓](#8-graphics) |
 | **9** Text | Extraction loses **1,137 glyphs of 16,321,270**, from 85,982, and all of them are named. [↓](#9-text) |
 | **10** Rendering | Both of 6.3.2.2's `shall`s met. Not colour managed. [↓](#10-rendering) |
 | **11** Transparency | Blend modes, constant alpha and soft masks all reach the backend. [↓](#11-transparency) |
