@@ -22,7 +22,7 @@
 
 mod space;
 
-pub use space::ResolvedColorSpace;
+pub use space::{ResolvedColorSpace, SpaceKey, SpacePool, space_key};
 
 use crate::PdfResult;
 use crate::graphics::Color;

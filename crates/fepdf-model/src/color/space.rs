@@ -39,14 +39,77 @@ pub struct ResolvedColorSpace {
     pub components: usize,
     tint: Option<TintTransform>,
     calibrated: Option<CalRgb>,
-    /// The `[/ICCBased …]` stream's profile, where it decoded (8.6.5.5).
+    /// The `[/ICCBased …]` stream's transform to sRGB, where the profile decoded (8.6.5.5).
     ///
     /// **Carried, not just counted.** This read `/N` and discarded the stream, so a
     /// document whose colours are measured against a press profile came out through
     /// 10.4.2.1's formula — the conversion that clause offers a processor which is *not*
     /// ICC-enabled. `/N` is still the authority on the component count, which is what
     /// 8.6.5.5 says; it is not the authority on what the colours are.
-    profile: Option<Arc<ColorProfile>>,
+    ///
+    /// It is the transform and not the profile because building one costs what a profile
+    /// costs to interpret: a space, not a colour. See [`IccTransform`].
+    icc: Option<IccTransform>,
+}
+
+/// Which arena pool a `/ColorSpace` resource entry's handle indexes.
+///
+/// Carried alongside the index because the pools are separate: an `Object::Array` and an
+/// `Object::Dictionary` can both be handle 7 and mean different things.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum SpacePool {
+    /// `Object::Name`.
+    Name,
+    /// `Object::Array` — what almost every `/ColorSpace` resource is written as.
+    Array,
+    /// `Object::Dictionary`.
+    Dictionary,
+    /// `Object::Stream`.
+    Stream,
+    /// `Object::Reference`.
+    Reference,
+}
+
+/// What identifies a `/ColorSpace` resource entry across one document's arena.
+pub type SpaceKey = (SpacePool, u32);
+
+/// The key for an entry that has one.
+///
+/// `None` for the direct objects — a boolean or a number carries no arena identity, and
+/// is not what a `/ColorSpace` resource is written as in any case.
+#[must_use]
+pub fn space_key(entry: &Object) -> Option<SpaceKey> {
+    match entry {
+        Object::Name(h) => Some((SpacePool::Name, h.index())),
+        Object::Array(h) => Some((SpacePool::Array, h.index())),
+        Object::Dictionary(h) => Some((SpacePool::Dictionary, h.index())),
+        Object::Stream(h, _) => Some((SpacePool::Stream, h.index())),
+        Object::Reference(h) => Some((SpacePool::Reference, h.index())),
+        Object::Boolean(_)
+        | Object::Integer(_)
+        | Object::Real(_)
+        | Object::String(_)
+        | Object::Hex(_)
+        | Object::Text(_)
+        | Object::Null => None,
+    }
+}
+
+/// A profile's transform into sRGB, built once when the space resolves.
+///
+/// **Per space, not per colour.** Building this from the profile on every `to_color`
+/// added 7.0s to `pattern_color_test` alone (18.4s against 11.4s with the profile path
+/// removed, 2026-09-10) — the transform is a set of tables over the profile, and the
+/// components it is handed do not enter into it.
+#[derive(Clone)]
+struct IccTransform(Arc<moxcms::TransformF32Executor>);
+
+impl std::fmt::Debug for IccTransform {
+    /// The executor is a trait object with no `Debug`; the field's presence is what a
+    /// dump of a colour space has to say about it.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("IccTransform(..)")
+    }
 }
 
 /// The gamma and matrix of a `/CalRGB` space (8.6.5.3, Table 63).
@@ -79,7 +142,7 @@ impl ResolvedColorSpace {
     /// A device space of a known component count, for the paths that already know which
     /// one they are in.
     pub fn device(kind: ColorSpaceKind, components: usize) -> Self {
-        Self { kind, components, tint: None, calibrated: None, profile: None }
+        Self { kind, components, tint: None, calibrated: None, icc: None }
     }
 
     fn parse_at(obj: &Object, arena: &PdfArena, depth: usize) -> Option<Self> {
@@ -171,7 +234,7 @@ impl ResolvedColorSpace {
             .and_then(|n| usize::try_from(n).ok())
             .filter(|n| matches!(n, 1 | 3 | 4))
             .unwrap_or(3);
-        let profile = items
+        let icc = items
             .get(1)
             .map(|o| o.resolve(arena))
             .and_then(|o| match o {
@@ -179,8 +242,8 @@ impl ResolvedColorSpace {
                 _ => None,
             })
             .and_then(|bytes| ColorProfile::new_from_slice(&bytes).ok())
-            .map(Arc::new);
-        Self { kind: ColorSpaceKind::ICCBased, components, tint: None, calibrated: None, profile }
+            .and_then(|profile| icc_transform(&profile, components));
+        Self { kind: ColorSpaceKind::ICCBased, components, tint: None, calibrated: None, icc }
     }
 
     /// `[/Separation name alternateSpace tintTransform]` (8.6.6.4).
@@ -191,7 +254,7 @@ impl ResolvedColorSpace {
             components: 1,
             tint: Some(tint),
             calibrated: None,
-            profile: None,
+            icc: None,
         })
     }
 
@@ -210,7 +273,7 @@ impl ResolvedColorSpace {
             components,
             tint: Some(tint),
             calibrated: None,
-            profile: None,
+            icc: None,
         })
     }
 
@@ -238,8 +301,9 @@ impl ResolvedColorSpace {
         // 10.3: the profile is a measurement of the device the colours were written for,
         // and putting them through it is the difference between colour management and the
         // device formula 10.4.2.1 offers a processor without one.
-        if let Some(profile) = &self.profile
-            && let Some(colour) = through_profile(profile, components)
+        if let Some(icc) = &self.icc
+            && components.len() == self.components
+            && let Some(colour) = through_profile(icc, components)
         {
             return Some(colour);
         }
@@ -322,6 +386,8 @@ fn numbers(
 
 /// Puts `components` through an ICC profile into sRGB (10.3).
 ///
+/// The transform from a profile's space into sRGB, for a space of `components` channels.
+///
 /// **The profile was parsed and thrown away.** `ResolvedColorSpace::from_icc` read the
 /// stream's `/N` for the component count and discarded the stream itself, so every
 /// `[/ICCBased …]` colour — 438 of the corpus's 1,053 images are in one — reached the
@@ -331,8 +397,8 @@ fn numbers(
 /// `None` where the transform cannot be built, which `to_color` answers with the device
 /// conversion rather than with black: an unusable profile is a reason to do what a
 /// processor without one does, not a reason to lose the colour.
-fn through_profile(profile: &ColorProfile, components: &[f64]) -> Option<Color> {
-    let layout = match components.len() {
+fn icc_transform(profile: &ColorProfile, components: usize) -> Option<IccTransform> {
+    let layout = match components {
         1 => moxcms::Layout::Gray,
         3 => moxcms::Layout::Rgb,
         // The crate's own note: "Cmyk8 uses the same layout as Rgba8" — four channels,
@@ -348,8 +414,13 @@ fn through_profile(profile: &ColorProfile, components: &[f64]) -> Option<Color> 
             moxcms::TransformOptions::default(),
         )
         .ok()?;
+    Some(IccTransform(transform))
+}
+
+/// Runs one colour through a transform built by [`icc_transform`].
+fn through_profile(icc: &IccTransform, components: &[f64]) -> Option<Color> {
     let source: Vec<f32> = components.iter().map(|c| *c as f32).collect();
     let mut out = [0.0_f32; 3];
-    moxcms::TransformExecutor::transform(&*transform, &source, &mut out).ok()?;
+    moxcms::TransformExecutor::transform(&*icc.0, &source, &mut out).ok()?;
     Some(Color::Rgb(f64::from(out[0]), f64::from(out[1]), f64::from(out[2])))
 }

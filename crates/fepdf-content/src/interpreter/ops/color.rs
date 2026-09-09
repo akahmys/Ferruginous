@@ -52,10 +52,10 @@ impl Interpreter<'_> {
         }
         if is_fill {
             self.state.fill_color_space = kind;
-            self.state.fill_space = space.map(Arc::new);
+            self.state.fill_space = space;
         } else {
             self.state.stroke_color_space = kind;
-            self.state.stroke_space = space.map(Arc::new);
+            self.state.stroke_space = space;
         }
         Ok(())
     }
@@ -112,12 +112,19 @@ impl Interpreter<'_> {
     /// the space came out `Unknown` — after which `scn` guessed the colour model from
     /// how many operands there were. For a separation that guess is one number, read as
     /// a grey level, which inverts the tint.
-    fn resolve_color_space(&self, name: &PdfName) -> Option<ResolvedColorSpace> {
+    ///
+    /// Parsing is memoised on the document, because a page names the same resource on
+    /// every `cs` and reading an `/ICCBased` profile out of its stream is not free.
+    fn resolve_color_space(&self, name: &PdfName) -> Option<Arc<ResolvedColorSpace>> {
         if let Some(device) = ResolvedColorSpace::from_family(name.as_str()) {
             // 8.6.5.6, before the device space itself: "If such an entry is present, its
             // value shall be used as the colour space for the operation currently being
             // performed."
-            return Some(self.default_space(name.as_str()).unwrap_or(device));
+            //
+            // Not memoised: `/DefaultRGB` is looked up through the resource stack, so the
+            // answer depends on where in the stream this is, which a key made of the
+            // operand name alone cannot say.
+            return Some(Arc::new(self.default_space(name.as_str()).unwrap_or(device)));
         }
         let key = self.doc.arena().intern_name(PdfName::new("ColorSpace"));
         // `find_resource` reports a missing entry as an error. Here that is an ordinary
@@ -126,7 +133,7 @@ impl Interpreter<'_> {
         let Ok(entry) = self.find_resource(&key, name) else {
             return None;
         };
-        let space = ResolvedColorSpace::parse(&entry, self.doc.arena())?;
+        let space = self.doc.resolved_color_space(&entry)?;
         // `/Indexed` stays on the operand-count path deliberately. Its operand is an
         // index into a palette, not a colour, and turning it into one needs the lookup
         // table the image path owns. Routing it through here would change what it paints

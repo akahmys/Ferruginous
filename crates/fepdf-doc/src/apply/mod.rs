@@ -18,6 +18,9 @@ use fepdf_model::{Document, PdfResult};
 
 /// Applies a canonical mutation operation to the document model.
 pub fn apply_operation(doc: &mut Document, op: Operation) -> PdfResult<()> {
+    // An edit can rewrite the object a resolved colour space was parsed from, and the
+    // cache is keyed by that object's arena handle.
+    doc.forget_color_spaces();
     match op {
         Operation::Rotate { pages, mode } => page::apply_rotate(doc, &pages, &mode),
         Operation::Reorder { from, to } => page::apply_reorder(doc, from, to),

@@ -7,6 +7,7 @@ pub mod page;
 pub mod structure;
 
 use self::page::Page;
+use crate::color::ResolvedColorSpace;
 use crate::error::PdfError;
 use crate::font::{FallbackFontType, FontResource};
 use crate::handle::DictHandle;
@@ -463,6 +464,16 @@ pub struct Document {
     pub system_fonts: Arc<BTreeMap<FallbackFontType, Arc<Vec<u8>>>>,
     /// Parsed FontResource cache to prevent redundant parsing across pages.
     pub font_cache: Arc<RwLock<BTreeMap<Handle<Object>, Arc<FontResource>>>>,
+    /// Resolved `/ColorSpace` cache, for the same reason as `font_cache` and measured the
+    /// same way.
+    ///
+    /// **Measured 2026-09-10**: `pattern_color_test` resolved 1,514 colour spaces for
+    /// 2,488 colours and built 1,514 ICC transforms out of them — the same few resources,
+    /// once per `cs` operator, on every page. A transform costs about 2.6ms to build, so
+    /// 3.9s of a 15.3s test was work already done. Per document because the key is an
+    /// arena handle and an arena belongs to one document; across pages because that is
+    /// where the repetition is.
+    pub space_cache: Arc<RwLock<BTreeMap<crate::color::SpaceKey, Option<Arc<ResolvedColorSpace>>>>>,
     /// Whether bundled fonts stand in for unparseable embedded programs.
     pub force_fallback: bool,
     /// Description of the encryption that was in force, if any.
@@ -550,6 +561,7 @@ impl Document {
             decisions: crate::interpretation::DecisionLog::default(),
             system_fonts: Arc::new(BTreeMap::new()),
             font_cache: Arc::new(RwLock::new(BTreeMap::new())),
+            space_cache: Arc::new(RwLock::new(BTreeMap::new())),
             force_fallback: false,
             security_method: "No Security".to_string(),
             permissions: None,
@@ -575,6 +587,7 @@ impl Document {
             decisions: crate::interpretation::DecisionLog::from(issues),
             system_fonts: Arc::new(BTreeMap::new()),
             font_cache: Arc::new(RwLock::new(BTreeMap::new())),
+            space_cache: Arc::new(RwLock::new(BTreeMap::new())),
             force_fallback: false,
             security_method: "No Security".to_string(),
             permissions: None,
@@ -814,6 +827,36 @@ impl Document {
     /// Returns a reference to the internal arena.
     pub fn arena(&self) -> &PdfArena {
         &self.arena
+    }
+
+    /// Drops what [`Self::resolved_color_space`] remembered.
+    ///
+    /// The cache is keyed by arena handle, and `PdfArena::set_object` writes a handle in
+    /// place — so an edit that rewrote a `/ColorSpace` array would leave the old space
+    /// answering for the new one. No `Operation` rewrites one today; this is called where
+    /// a document is edited so that none has to remember to, and it costs one `clear` per
+    /// edit.
+    pub fn forget_color_spaces(&self) {
+        self.space_cache.write().clear();
+    }
+
+    /// The colour space a `/ColorSpace` resource entry resolves to, parsed once.
+    ///
+    /// Nothing here decides what to *do* with the space — `/Indexed` is held off the
+    /// operand path by the interpreter, not by this — so the cache holds what parsing
+    /// says and callers keep their own policy. It holds the misses too: an entry that
+    /// does not parse does not parse on the next page either.
+    #[must_use]
+    pub fn resolved_color_space(&self, entry: &Object) -> Option<Arc<ResolvedColorSpace>> {
+        let Some(key) = crate::color::space_key(entry) else {
+            return ResolvedColorSpace::parse(entry, &self.arena).map(Arc::new);
+        };
+        if let Some(hit) = self.space_cache.read().get(&key) {
+            return hit.clone();
+        }
+        let resolved = ResolvedColorSpace::parse(entry, &self.arena).map(Arc::new);
+        self.space_cache.write().insert(key, resolved.clone());
+        resolved
     }
 
     /// Returns the handle to the document root (Catalog).

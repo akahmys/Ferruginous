@@ -1112,6 +1112,7 @@ pub fn apply_physical_redaction_to_page(
     page_index: usize,
     redacted_rects: &[[f32; 4]],
 ) -> PdfResult<usize> {
+    doc.forget_color_spaces();
     if redacted_rects.is_empty() {
         return Ok(0);
     }

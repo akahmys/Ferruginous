@@ -29,9 +29,9 @@ All crates in the workspace MUST maintain high test coverage for core data struc
 cargo test --workspace
 ```
 
-**Where the time goes, re-measured 2026-09-09 — one machine, nothing else running, three
-consecutive runs of each form.** A run with nothing to rebuild is **27 to 28 seconds** and
-reports **814 tests**. Derive both from one run:
+**Where the time goes, re-measured 2026-09-10 — one machine, nothing else running, two
+consecutive runs of each form, everything already built.** A run is **37.0 to 37.1
+seconds** and reports **848 tests**. Derive both from one run:
 
 ```bash
 time cargo test --workspace 2>&1 | grep -oE 'test result: ok\. [0-9]+' \
@@ -41,46 +41,56 @@ time cargo test --workspace 2>&1 | grep -oE 'test result: ok\. [0-9]+' \
 **This paragraph used to say 1m 57s for 591 tests, and to recommend a shorter form on the
 strength of it.** Both halves stopped being true:
 
-| | measured 2026-08-30 | measured 2026-09-09 |
+| | measured 2026-08-30 | measured 2026-09-10 |
 | :--- | ---: | ---: |
-| `cargo test --workspace` | 1m 57s, 591 tests | **44.5–48.8s, 814 tests** |
-| `cargo test --workspace --lib --bins --tests` | 1m 31s | 41.2–47.9s, 814 tests |
-| the difference — the doc-test phase | **26s, a fifth of the run** | **within run-to-run noise** |
+| `cargo test --workspace` | 1m 57s, 591 tests | **37.0–37.1s, 848 tests** |
+| `cargo test --workspace --lib --bins --tests` | 1m 31s | 32.2–32.7s, 848 tests |
+| the difference — the doc-test phase | **26s, a fifth of the run** | **4.5s, and 0 tests** |
 
-223 more tests, and the quarter has become **38% of what 591 tests cost** — 1m 57s to 45s
-— because **one test is a third of the run**. `crates/fepdf/tests/parser_twin_test.rs`
-opens each sample twice, refined and not, to hold the two content-stream readers to the
-same conclusions, and takes 14.6 seconds of the 45. It was 46 until the two largest samples were left out of it: measured, they were
-nine tenths of its cost and caught none of the three defects it has found, and both are
-compared page for page against PDFKit by `crosscheck_reading_order.sh` instead.
+257 more tests at **a third of what 591 tests cost**. The doc-test phase went from a fifth
+of the run to 4.5 seconds of it, and it still counts nothing — see below for why that is
+not a reason to reach for the short form.
+
+**Three test binaries are 27 of the 37 seconds**, and all three open documents:
+
+| | 2026-09-10 | what it does |
+| :--- | ---: | :--- |
+| `tests/pattern_color_test.rs` | 9.9s | patterns and colour over the corpus |
+| `tests/parser_twin_test.rs` | 9.5s | opens each sample twice, refined and not, to hold the two content-stream readers to the same conclusions |
+| `tests/reading_test.rs` | 7.6s | reading order |
+
+`parser_twin_test` was 46 seconds until the two largest samples were left out of it:
+measured, they were nine tenths of its cost and caught none of the three defects it has
+found, and both are compared page for page against PDFKit by
+`crosscheck_reading_order.sh` instead.
 
 **The cost was the debug build, not the work**, and half of it is gone. The same nine
 documents open twice in 5.4 seconds under `--release`, which is what asked the question.
-Measured 2026-09-09, `[profile.dev.package."*"] opt-level = 2` takes `cargo test
---workspace` from **45.9s to 27.5s** — the suite's cost is opening PDFs and the
-decompression under that is `flate2`, a dependency. The one-off price is **212 seconds**
-to rebuild the dependency graph, paid again whenever a dependency changes, and recovered
-by the eighth run.
+Measured 2026-09-09 at 814 tests, `[profile.dev.package."*"] opt-level = 2` took `cargo
+test --workspace` from **45.9s to 27.5s**. That setting is in `Cargo.toml` now, so the
+37.0s above is the tuned figure and not something it could still buy; the 27.5s to 37.0s
+between then and 2026-09-10 is 34 more tests and the work they cover. The one-off price is
+**212 seconds** to rebuild the dependency graph, paid again whenever a dependency changes,
+and recovered by the eighth run.
 
 `package."*"` and not `[profile.dev]`: optimising this workspace's own crates would put
 that cost on every edit-and-rebuild, which is the loop a contributor is actually in.
 
-**What made the suite fast in the first place is unchanged**, and is the whole of why 814
-tests cost less than half what 591 did:
+**What made the suite fast in the first place is unchanged**, and is the whole of why 848
+tests cost a third of what 591 did:
 [ADR-0074](docs/adr/0074-the-reader-copied-the-file-once-per-object.md) (the reader copied
 the file once per object), [ADR-0075](docs/adr/0075-two-costs-a-caller-never-asked-for.md)
 (the arena maintained a reverse index nothing queried) and
 [ADR-0076](docs/adr/0076-what-the-arena-compresses-and-what-that-was-costing.md)
 (compression level). The suite opens documents, so it inherited all three.
 
-**Both forms now report the same 800**, which is the doc-test phase saying in a second way
-what the paragraph below says: it runs no examples, so it counts none. The short form's
-slowest run (31.5s) is slower than the full form's fastest (28.8s), which is what "within
-run-to-run noise" means here.
+**Both forms report the same 848**, which is the doc-test phase saying in a second way
+what the paragraph above says: it runs no examples, so it counts none.
 
 **So the short form is no longer worth knowing about.** It was documented because it saved
-a fifth of the run; it now saves nothing measurable, and it still stops guarding doc
-examples. `cargo test --workspace` is the gate and there is no reason to reach past it.
+a fifth of the run; it now saves 4.5 seconds of 37, and it still stops guarding doc
+examples. `cargo test --workspace` is the gate and there is no reason to reach past it for
+that.
 
 What has not changed is that the doc-test phase checks nothing: `rustdoc` builds a harness
 for each library crate and finds no examples, because no doc comment in the workspace
