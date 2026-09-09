@@ -11,6 +11,13 @@ pub enum WorkerRequest {
     Open {
         data: Bytes,
         name: Option<String>,
+        /// What to try as the user or owner password (7.6.4.4).
+        ///
+        /// **`None` is not "no password"**, it is "none offered yet". A document that
+        /// stays locked comes back as `NeedsPassword` rather than as an error, because
+        /// the engine opens it either way: its structure is readable and its content is
+        /// not, which is a document to ask about rather than one to refuse.
+        password: Option<String>,
     },
     RenderPage {
         index: usize,
@@ -23,6 +30,10 @@ pub enum WorkerRequest {
     },
     Save {
         path: std::path::PathBuf,
+        /// `/U` (7.6.4.4). `None` writes the document unprotected.
+        password: Option<String>,
+        /// `/O`, which is meaningless without a user password and is ignored then.
+        owner_password: Option<String>,
         compress: bool,
         linearize: bool,
         vacuum: bool,
@@ -98,6 +109,18 @@ pub enum WorkerResponse {
     LayersChanged {
         layers: Vec<fepdf::LayerRow>,
     },
+    /// The document is encrypted and the password offered did not unlock it.
+    ///
+    /// Carries the bytes back so the app can retry without reading the file again, and
+    /// says whether a password had been tried — the difference between "this is locked"
+    /// and "that was the wrong one", which are different things to put in front of
+    /// someone.
+    NeedsPassword {
+        data: Bytes,
+        name: Option<String>,
+        method: String,
+        retried: bool,
+    },
     DocumentSaved {
         path: std::path::PathBuf,
         /// What the write cost, in the document's own terms. Empty for most files;
@@ -117,10 +140,10 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
 
     for request in rx {
         match request {
-            WorkerRequest::Open { data, name } => {
+            WorkerRequest::Open { data, name, password } => {
                 text_cache.clear();
                 spans_cache.clear();
-                current_doc = handle_open(data, name, &tx);
+                current_doc = handle_open(data, name, password, &tx);
                 ctx.request_repaint();
             }
             WorkerRequest::RenderPage { index, scale } => {
@@ -143,6 +166,8 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
             }
             WorkerRequest::Save {
                 path,
+                password,
+                owner_password,
                 compress,
                 linearize,
                 vacuum,
@@ -157,6 +182,8 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                 handle_save(
                     current_doc.as_ref(),
                     path,
+                    password,
+                    owner_password,
                     compress,
                     linearize,
                     vacuum,
@@ -290,22 +317,69 @@ fn infer_binding(fonts: &[fepdf::FontSummary], lang: Option<&str>) -> Option<Str
 /// be right, only one where it is now known not to be wrong.
 const VERTICAL_SHARE: f32 = 0.10;
 
+/// The handler named by an open that failed because nothing could be read without a key.
+///
+/// **A locked document reaches the reader two ways.** When its structure sits in a plain
+/// cross-reference table, 7.6 leaves that outside the encryption and the document opens
+/// with a 7.6.1 `Violation` — [`still_locked`] reads that one. When the structure is in
+/// object streams (7.5.7), which is what this engine writes by default, there is nothing
+/// to read at all and `open_with_options` returns an error instead. Both are the same
+/// question to a reader, and only the second was ever going to be the common case.
+fn locked_by_error(error: &fepdf::PdfError) -> Option<String> {
+    let text = format!("{error:?}");
+    if !text.contains("was not unlocked") {
+        return None;
+    }
+    // "Password Security (AES-256) was not unlocked, and ..." — the same phrase the other
+    // path puts in its decision, so the prompt reads the same either way.
+    text.split(" was not unlocked").next().and_then(|head| {
+        head.rfind('"').map(|at| head[at + 1..].to_string()).or_else(|| Some(head.to_string()))
+    })
+}
+
+/// Whether the document opened but stayed encrypted, and under which handler.
+///
+/// **The engine does not refuse a locked document**, and should not: 7.6 leaves the file
+/// structure outside the encryption, so the page count, the catalogue and the security
+/// handler are all readable while the content is not. It records a 7.6.1 `Violation`
+/// saying so, and this is the frontend reading it — the point at which "structure yes,
+/// content no" has to become a question the reader can answer.
+fn still_locked(doc: &PdfDocument) -> Option<String> {
+    doc.decisions().iter().find_map(|d| {
+        (d.clause == "7.6.1" && d.found.contains("could not be unlocked"))
+            .then(|| d.found.split(" could not be").next().unwrap_or("This document").to_string())
+    })
+}
+
 fn handle_open(
     // RR-15 Limit: Dispatcher - handles open document worker requests and packages file properties
     data: Bytes,
     name: Option<String>,
+    password: Option<String>,
     tx: &Sender<WorkerResponse>,
 ) -> Option<PdfDocument> {
     let file_size = data.len();
     let tx_clone = tx.clone();
+    let retried = password.is_some();
     let options = fepdf::IngestionOptions {
+        password,
         progress_callback: Some(Arc::new(move |msg| {
             let _ = tx_clone.send(WorkerResponse::LoadingProgress { message: msg });
         })),
         ..fepdf::IngestionOptions::default()
     };
+    let bytes_back = data.clone();
     match PdfDocument::open_with_options(data, &options) {
         Ok(doc) => {
+            if let Some(method) = still_locked(&doc) {
+                let _ = tx.send(WorkerResponse::NeedsPassword {
+                    data: bytes_back,
+                    name,
+                    method,
+                    retried,
+                });
+                return None;
+            }
             let num_pages = doc.page_count().unwrap_or(0);
             let mut page_sizes = Vec::with_capacity(num_pages);
             for i in 0..num_pages {
@@ -365,6 +439,12 @@ fn handle_open(
                 decisions,
             })));
             Some(doc)
+        }
+        Err(e) if locked_by_error(&e).is_some() => {
+            let method = locked_by_error(&e).unwrap_or_else(|| "This document".to_string());
+            let _ =
+                tx.send(WorkerResponse::NeedsPassword { data: bytes_back, name, method, retried });
+            None
         }
         Err(e) => {
             let _ = tx.send(WorkerResponse::Error(format!("Failed to load PDF: {e}")));
@@ -500,6 +580,8 @@ fn handle_save(
     // RR-15 Limit: Dispatcher - Thread pool worker saving request routing dispatcher handling signatures, redactions and compression saving options
     doc_opt: Option<&PdfDocument>,
     path: std::path::PathBuf,
+    password: Option<String>,
+    owner_password: Option<String>,
     compress: bool,
     linearize: bool,
     vacuum: bool,
@@ -534,10 +616,15 @@ fn handle_save(
     }
 
     let version = if upgrade_pdf20 { "2.0" } else { "1.7" };
+    // 7.6: what protects the output, which the engine writes as AES-256 because that is
+    // the one scheme PDF 2.0 does not deprecate (ADR-0015). An owner password with no user
+    // password protects nothing, so it goes only where there is one to restrict.
     let options = fepdf::SaveOptions {
         compress,
         compression_level: 6,
         vacuum,
+        owner_password: password.as_ref().and(owner_password),
+        password,
         ..fepdf::SaveOptions::default()
     };
 

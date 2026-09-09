@@ -2,6 +2,16 @@
 
 use super::FepdfApp;
 
+/// What the reader did with the password prompt this frame.
+enum Answer {
+    /// Still typing, or the window was left alone.
+    Waiting,
+    /// Try what is in the field.
+    Unlock,
+    /// Close the document rather than unlock it.
+    GiveUp,
+}
+
 impl FepdfApp {
     pub(crate) fn show_export_wizard_window(&mut self, ctx: &egui::Context) {
         crate::export_wizard::ExportWizard::show(self, ctx);
@@ -116,6 +126,92 @@ impl FepdfApp {
         }
     }
 
+    /// Asks for the password of a document that opened encrypted (7.6.4.4).
+    ///
+    /// **Modal, and it has to be.** The engine reads a locked document's structure and
+    /// not its content, so every panel behind this would show a page count and a
+    /// catalogue over blank pages. Answering the question is the only thing to do next.
+    ///
+    /// There is no Cancel that leaves the document half-open: closing it is what cancel
+    /// means, and the reader keeps whatever was open before.
+    pub(crate) fn show_password_prompt(&mut self, ctx: &egui::Context) {
+        let Some(locked) = self.locked.as_mut() else { return };
+        match Self::password_dialog(ctx, locked) {
+            Answer::Waiting => {}
+            Answer::GiveUp => self.locked = None,
+            Answer::Unlock => self.retry_with_password(ctx),
+        }
+    }
+
+    /// Sends the document back to the worker with what the reader typed.
+    fn retry_with_password(&mut self, ctx: &egui::Context) {
+        let Some(locked) = self.locked.take() else { return };
+        self.is_loading = true;
+        self.loading_message = "Unlocking...".to_string();
+        let _ = self.tx_worker.send(crate::worker::WorkerRequest::Open {
+            data: locked.data,
+            name: locked.name,
+            password: Some(locked.attempt),
+        });
+        ctx.request_repaint();
+    }
+
+    /// Draws the prompt and says what the reader did with it.
+    ///
+    /// **Modal, and it has to be.** The engine reads a locked document's structure and not
+    /// its content, so every panel behind this would show a page count and a catalogue
+    /// over blank pages. Answering the question is the only thing to do next, and there is
+    /// no Cancel that leaves the document half-open: closing it is what cancel means.
+    fn password_dialog(ctx: &egui::Context, locked: &mut super::LockedDocument) -> Answer {
+        let name = locked.name.clone().unwrap_or_else(|| "This document".to_string());
+        let mut answer = Answer::Waiting;
+
+        egui::Window::new("🔒")
+            .title_bar(false)
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .default_width(360.0)
+            .show(ctx, |ui| {
+                ui.add_space(6.0);
+                ui.heading(&name);
+                ui.label(egui::RichText::new(&locked.method).weak());
+                ui.add_space(8.0);
+
+                if locked.refused {
+                    ui.label(
+                        egui::RichText::new("That password did not unlock it.")
+                            .color(super::theme::colors::STATUS_WARN_TEXT),
+                    );
+                    ui.add_space(4.0);
+                }
+
+                let field = ui.add(
+                    egui::TextEdit::singleline(&mut locked.attempt)
+                        .password(true)
+                        .hint_text("Password")
+                        .desired_width(f32::INFINITY),
+                );
+                field.request_focus();
+                if field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    answer = Answer::Unlock;
+                }
+
+                ui.add_space(10.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Unlock").clicked() {
+                        answer = Answer::Unlock;
+                    }
+                    if ui.button("Close the document").clicked() {
+                        answer = Answer::GiveUp;
+                    }
+                });
+                ui.add_space(4.0);
+            });
+
+        answer
+    }
+
     pub(crate) fn render_overlay_windows(&mut self, ctx: &egui::Context) {
         // RR-15 Limit: GUI - Renders various overlay windows, tool wizards, and popup alerts
         if self.show_export_wizard {
@@ -226,5 +322,9 @@ impl FepdfApp {
 
         // Show About Modal
         self.show_about_modal_window(ctx);
+
+        // Last, so it draws over everything: a locked document has nothing behind this
+        // worth interacting with.
+        self.show_password_prompt(ctx);
     }
 }

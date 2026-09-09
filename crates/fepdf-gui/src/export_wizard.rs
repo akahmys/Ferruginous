@@ -18,6 +18,7 @@ impl ExportWizard {
             ctx,
             |ui| {
                 Self::render_compliance_checkboxes(app, ui);
+                Self::render_encryption_section(app, ui);
                 Self::render_signature_section(app, ui);
                 Self::render_draft_management_section(app, ui);
 
@@ -62,6 +63,58 @@ impl ExportWizard {
             &mut app.export_burn_redactions,
             app.locale_mgr.tr(&app.active_language, "export_opt_burn_redactions"),
         );
+    }
+
+    /// What protects the saved document (7.6.4).
+    ///
+    /// **This crate could sign a document and not protect one** until 2026-09-09: the
+    /// signature section below has stood for phases while `SaveOptions::password` was
+    /// never set from here, so the engine's whole encryption path was unreachable from
+    /// the GUI. `fepdf-cli` has taken `--password` throughout.
+    ///
+    /// One scheme and no choice of it: PDF 2.0 deprecates everything but AES-256, and
+    /// this engine's rule is not to write what 2.0 deprecates (ADR-0015). A radio button
+    /// offering RC4 would be offering a document this engine will not produce.
+    fn render_encryption_section(app: &mut crate::app::FepdfApp, ui: &mut egui::Ui) {
+        let tr = |key: &str| app.locale_mgr.tr(&app.active_language, key);
+        ui.add_space(8.0);
+        ui.heading(tr("export_encryption_heading"));
+        ui.add_space(5.0);
+
+        let mut protect = app.export_password.is_some();
+        if ui.checkbox(&mut protect, tr("export_enc_password")).changed() {
+            // Dropping the passwords with the checkbox, rather than keeping them hidden:
+            // a password still in the struct is one that gets written by the next save.
+            app.export_password = protect.then(String::new);
+            app.export_owner_password = None;
+        }
+
+        if let Some(password) = app.export_password.as_mut() {
+            ui.add_space(4.0);
+            ui.label(tr("export_enc_user_password"));
+            ui.add(
+                egui::TextEdit::singleline(password).password(true).desired_width(f32::INFINITY),
+            );
+
+            let mut owner = app.export_owner_password.clone().unwrap_or_default();
+            ui.add_space(4.0);
+            ui.label(tr("export_enc_owner_password"));
+            if ui
+                .add(
+                    egui::TextEdit::singleline(&mut owner)
+                        .password(true)
+                        .desired_width(f32::INFINITY),
+                )
+                .changed()
+            {
+                app.export_owner_password = (!owner.is_empty()).then_some(owner);
+            }
+
+            ui.add_space(4.0);
+            ui.label(egui::RichText::new(tr("export_enc_note")).size(11.0).weak());
+        } else {
+            ui.label(egui::RichText::new(tr("export_enc_none")).size(11.0).weak());
+        }
     }
 
     fn render_signature_section(app: &mut crate::app::FepdfApp, ui: &mut egui::Ui) {
@@ -201,6 +254,8 @@ impl ExportWizard {
                 app.signature_position.map(|(idx, r)| (idx, [r.min.x, r.min.y, r.max.x, r.max.y]));
             let _ = app.tx_worker.send(WorkerRequest::Save {
                 path: p,
+                password: app.export_password.clone(),
+                owner_password: app.export_owner_password.clone(),
                 compress: app.export_compress,
                 linearize: app.export_linearize,
                 vacuum: app.export_vacuum,

@@ -210,5 +210,11 @@
   "menu_move_last": "To End",
   "tab_layers": "Layers",
   "layers_none": "This document presents no optional content. A document may carry layers and still list none: /Order decides which are presented, and it defaults to empty.",
-  "layers_locked": "This layer is locked by the document (/Locked) and its state cannot be changed here."
+  "layers_locked": "This layer is locked by the document (/Locked) and its state cannot be changed here.",
+  "export_encryption_heading": "Protection",
+  "export_enc_none": "Leave the document unprotected",
+  "export_enc_password": "Encrypt with a password (AES-256)",
+  "export_enc_user_password": "Password to open",
+  "export_enc_owner_password": "Owner password (optional)",
+  "export_enc_note": "PDF 2.0 writes AES-256 only. Anyone with the password can open it; the owner password restricts what they may then do."
 }

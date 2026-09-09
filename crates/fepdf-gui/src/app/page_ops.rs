@@ -71,7 +71,7 @@ impl FepdfApp {
         self.doc_page_sizes.clear();
         self.doc_fonts.clear();
         self.reset_view();
-        let _ = self.tx_worker.send(WorkerRequest::Open { data, name });
+        let _ = self.tx_worker.send(WorkerRequest::Open { data, name, password: None });
         ctx.request_repaint();
     }
 

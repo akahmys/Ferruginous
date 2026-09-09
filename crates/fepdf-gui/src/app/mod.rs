@@ -21,9 +21,27 @@ use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use vello::Scene;
 
+/// A document that opened encrypted, waiting for the password that unlocks it.
+///
+/// The bytes are kept rather than the path: a file the reader chose through a dialog may
+/// not be re-openable by path, and reading it twice to answer one question is work the
+/// worker already did.
+pub struct LockedDocument {
+    pub data: bytes::Bytes,
+    pub name: Option<String>,
+    /// The handler that locked it, as the engine names it — "Password Security (AES-256)".
+    pub method: String,
+    /// What the reader has typed, not yet tried.
+    pub attempt: String,
+    /// Whether a password has already been refused, which is a different thing to say.
+    pub refused: bool,
+}
+
 pub struct FepdfApp {
     pub tx_worker: Sender<WorkerRequest>,
     pub rx_worker: Receiver<WorkerResponse>,
+    /// Set while a document waits for its password; `None` the rest of the time.
+    pub locked: Option<LockedDocument>,
 
     pub total_pages: usize,
     pub page_layouts: Vec<PageLayout>,
@@ -46,6 +64,14 @@ pub struct FepdfApp {
     pub redaction_studio_panel: crate::redaction_studio::RedactionStudioPanel,
     pub show_redaction_studio: bool,
     pub show_export_wizard: bool,
+    /// Whether the saved document is encrypted, and with what (7.6.4).
+    ///
+    /// **Empty is not the same as absent.** A `/U` password of "" is a real encryption
+    /// with an empty user password, which is what most "encrypted" PDFs on the web are;
+    /// this is `None` when the reader asked for no protection at all.
+    pub export_password: Option<String>,
+    /// `/O`, which restricts what a reader who has only the user password may do.
+    pub export_owner_password: Option<String>,
     pub export_compress: bool,
     pub export_linearize: bool,
     pub export_vacuum: bool,
@@ -150,6 +176,8 @@ impl FepdfApp {
             redaction_studio_panel: crate::redaction_studio::RedactionStudioPanel::new(),
             show_redaction_studio: false,
             show_export_wizard: false,
+            export_password: None,
+            export_owner_password: None,
             export_compress: true,
             export_linearize: true,
             export_vacuum: true,
@@ -194,6 +222,7 @@ impl FepdfApp {
             layers: Vec::new(),
             doc_decisions: Vec::new(),
             pages_left_out: 0,
+            locked: None,
         }
     }
 
@@ -201,6 +230,18 @@ impl FepdfApp {
         // RR-15 Limit: GUI - Handle asynchronous background messages
         while let Ok(msg) = self.rx_worker.try_recv() {
             match msg {
+                WorkerResponse::NeedsPassword { data, name, method, retried } => {
+                    // Not an error: the file is fine and the reader has not been asked yet.
+                    self.is_loading = false;
+                    self.locked = Some(crate::app::LockedDocument {
+                        data,
+                        name,
+                        method,
+                        attempt: String::new(),
+                        refused: retried,
+                    });
+                    ctx.request_repaint();
+                }
                 WorkerResponse::LoadingProgress { message } => {
                     self.loading_message = message;
                     ctx.request_repaint();

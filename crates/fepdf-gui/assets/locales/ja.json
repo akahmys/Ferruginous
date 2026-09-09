@@ -210,5 +210,11 @@
   "menu_move_last": "末尾",
   "tab_layers": "レイヤ",
   "layers_none": "この文書はオプショナルコンテンツを提示しません。レイヤを持っていても提示しないことがあります — 提示対象を決めるのは /Order で、既定は空です。",
-  "layers_locked": "このレイヤは文書によりロックされており（/Locked）、ここでは状態を変更できません。"
+  "layers_locked": "このレイヤは文書によりロックされており（/Locked）、ここでは状態を変更できません。",
+  "export_encryption_heading": "保護",
+  "export_enc_none": "保護しない",
+  "export_enc_password": "パスワードで暗号化する (AES-256)",
+  "export_enc_user_password": "開くためのパスワード",
+  "export_enc_owner_password": "オーナーパスワード（任意）",
+  "export_enc_note": "PDF 2.0 が書けるのは AES-256 だけです。開くパスワードを知る人は開けます。オーナーパスワードはそのあと何ができるかを制限します。"
 }
