@@ -140,7 +140,7 @@ survive that test as refusals — nothing here depends on them, and both are dep
 | **9** Text | Extraction loses **1,137 glyphs of 16,321,270**, from 85,982, and all of them are named. [↓](#9-text) |
 | **10** Rendering | Both of 6.3.2.2's `shall`s met. Not colour managed. [↓](#10-rendering) |
 | **11** Transparency | Blend modes, constant alpha and soft masks all reach the backend. [↓](#11-transparency) |
-| **12** Interactive features | Read and written. 29 entries on rare annotation subtypes have no reader. [↓](#12-interactive-features) |
+| **12** Interactive features | Read and written. 15 entries have no reader: eleven are clause 13, which is declined, and four are `/Redact` keys written on a `/Stamp`, which no table defines. [↓](#12-interactive-features) |
 | **13** Multimedia | Declined, and not a gap: 13.4 is deprecated in 2.0 and reading it would be building for a subsystem the standard is retiring. The corpus does carry it — `/3D` ten times, `/Movie` five, `/RichMedia` three — which changes the premise and not the refusal. |
 | **14** Document interchange | Marked content and logical structure are read and acted on. [↓](#14-document-interchange) |
 | **14.3** Metadata | Settled at load into one state. [↓](#143-metadata) |

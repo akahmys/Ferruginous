@@ -20,13 +20,25 @@
 //! eight of the sixteen subtypes at once — and the subtype-specific readers cover
 //! `/Link`, `/Popup`, `/Circle`, `/Movie`, `/Stamp` and `/Widget`.
 //!
-//! **The line is drawn at "more than once".** Those six are every subtype either corpus
-//! writes twice or more; the other ten occur exactly once each, and a sample of one is
-//! not a reason to build a type. What they carry is *reported* rather than read —
-//! `inspect interactive` names, per subtype, which entries the file writes and which of
-//! them this engine read — so the gap is a measurement instead of an inference. Across
-//! both corpora that leaves `/Vertices` on a `/Polygon`, `/Sound` on a `/Sound`,
-//! `/FixedPrint` on a `/Watermark` and eleven more, each on one annotation.
+//! **The line was drawn at "more than once"**, and that was the wrong line.
+//! `AGENTS.md`'s third principle says a corpus can justify building something and only a
+//! use case can justify *not* building it; "occurs once, so no reader" is the corpus
+//! being asked to do the second job. Reading it that way left `/Vertices` unread on a
+//! `/Polygon` — which is the whole of what a polygon is — and `/QuadPoints` unread on a
+//! `/Redact`, in an engine that redacts.
+//!
+//! The subtypes are read on their clause now, and what is left has a reason that is not
+//! rarity. Measured over both corpora, 15 entries have no reader:
+//!
+//! - **Eleven are clause 13**: `/3D`, `/Movie`, `/RichMedia`, `/Screen` and `/Sound`.
+//!   `ROADMAP.md` declines multimedia — 13.4 is deprecated in 2.0, and PRC and U3D are
+//!   two more standards — so these are declined rather than missing.
+//! - **Four are `/DA`, `/IC`, `/QuadPoints` and `/RO` on a `/Stamp`**, which no table
+//!   defines for one. They are `/Redact` entries on an annotation that is not a redaction,
+//!   and "not read" is the truthful answer: there is no clause to write a reader against.
+//!
+//! What each file writes and what this engine read is reported per subtype by
+//! `inspect interactive`, so the gap stays a measurement instead of an inference.
 
 use crate::access::dict_of;
 use crate::arena::PdfArena;
@@ -470,6 +482,91 @@ pub struct StampEntries {
     pub name: Option<PdfName>,
 }
 
+/// Entries a `/Redact` adds (12.5.6.23, Table 194).
+///
+/// **Read because this engine redacts.** `Operation::RedactDocument` takes rectangles a
+/// caller supplies; a `/Redact` annotation is the same instruction written into the file
+/// by whoever marked it up, and not reading `/QuadPoints` meant the engine could not act
+/// on a redaction someone else had already specified. That is a use case, which is what
+/// AGENTS.md principle 3 says it takes — the corpus writing one of these once is not.
+#[derive(Debug, Clone, FromPdfObject)]
+#[pdf_dict(clause = "12.5.6.23")]
+pub struct RedactEntries {
+    #[pdf_key("QuadPoints")]
+    /// `/QuadPoints`: the regions to remove, as quadrilaterals. Absent means `/Rect`.
+    pub quad_points: Option<Handle<Vec<Object>>>,
+    #[pdf_key("IC")]
+    /// `/IC`: the colour the redacted region is filled with once the content has gone.
+    pub interior_colour: Option<Handle<Vec<Object>>>,
+    #[pdf_key("RO")]
+    /// `/RO`: a form XObject drawn over the region in place of what was removed.
+    pub overlay: Option<Handle<Object>>,
+    #[pdf_key("DA")]
+    /// `/DA`: how overlay text is drawn, when `/OverlayText` is used instead of `/RO`.
+    pub default_appearance: Option<String>,
+}
+
+/// Entries a `/Polygon` or `/PolyLine` adds (12.5.6.9, Table 178).
+///
+/// **`/Vertices` is the annotation.** Without it there is a rectangle and no shape in it,
+/// so this is not a rare entry on a rare subtype; it is the whole of what the subtype
+/// says.
+#[derive(Debug, Clone, FromPdfObject)]
+#[pdf_dict(clause = "12.5.6.9")]
+pub struct PolygonEntries {
+    #[pdf_key("Vertices")]
+    /// `/Vertices`: the points, as x y pairs in default user space.
+    pub vertices: Option<Handle<Vec<Object>>>,
+}
+
+/// Entries a text-markup annotation adds (12.5.6.10, Table 179).
+///
+/// `/Highlight`, `/Underline`, `/Squiggly` and `/StrikeOut` share one table, and
+/// `/QuadPoints` is what says which words are marked rather than which rectangle they sit
+/// in — a highlight over three lines is three quadrilaterals and one `/Rect`.
+#[derive(Debug, Clone, FromPdfObject)]
+#[pdf_dict(clause = "12.5.6.10")]
+pub struct TextMarkupEntries {
+    #[pdf_key("QuadPoints")]
+    /// `/QuadPoints`: the quadrilaterals the markup covers.
+    pub quad_points: Option<Handle<Vec<Object>>>,
+}
+
+/// Entries a `/FileAttachment` adds (12.5.6.15, Table 184).
+///
+/// The engine reads `/AF` associated files (14.13) and writes them; an attachment
+/// annotation is the same file reachable from a page instead of from the catalogue, and
+/// a reader that finds one through `/AF` and not through the page has found half of them.
+#[derive(Debug, Clone, FromPdfObject)]
+#[pdf_dict(clause = "12.5.6.15")]
+pub struct FileAttachmentEntries {
+    #[pdf_key("FS")]
+    /// `/FS`: the file specification — the attached file itself.
+    pub file_specification: Option<Handle<Object>>,
+    #[pdf_key("Name")]
+    /// `/Name`: which icon stands for it — `PushPin`, `Paperclip`, and so on.
+    pub icon: Option<PdfName>,
+}
+
+/// Entries a `/Caret` adds (12.5.6.11, Table 180).
+#[derive(Debug, Clone, FromPdfObject)]
+#[pdf_dict(clause = "12.5.6.11")]
+pub struct CaretEntries {
+    #[pdf_key("RD")]
+    /// `/RD`: how far `/Rect` is inset from the caret it draws.
+    pub difference: Option<Handle<Vec<Object>>>,
+}
+
+/// Entries a `/Watermark` adds (12.5.6.22, Table 193).
+#[derive(Debug, Clone, FromPdfObject)]
+#[pdf_dict(clause = "12.5.6.22")]
+pub struct WatermarkEntries {
+    #[pdf_key("FixedPrint")]
+    /// `/FixedPrint`: the matrix and position that keep a watermark the same size however
+    /// the page is scaled — which is what makes it a watermark rather than page content.
+    pub fixed_print: Option<Handle<Object>>,
+}
+
 /// Entries a `/Popup` adds (12.5.6.14, Table 184).
 #[derive(Debug, Clone, FromPdfObject)]
 #[pdf_dict(clause = "12.5.6.14")]
@@ -506,6 +603,21 @@ pub struct WidgetEntries {
     #[pdf_key("BS")]
     /// `/BS`: border style.
     pub border_style: Option<BorderStyle>,
+    #[pdf_key("TU")]
+    /// `/TU`: the alternate field name, used in place of `/T` in a description of the
+    /// field (12.7.4.2, Table 226).
+    ///
+    /// **What a screen reader announces**, which makes it the one entry on this list that
+    /// PDF/UA-2 asks a producer for and this engine reported as unread. 14.9.4's argument
+    /// for `/ActualText` is the same one: what is drawn and what is meant are allowed to
+    /// differ, and a document that says so is the reason anyone can use some forms.
+    pub alternate_name: Option<String>,
+    #[pdf_key("DV")]
+    /// `/DV`: the value a reset restores (12.7.4.1, Table 224), which is not `/V` and is
+    /// the difference between a form that resets to blank and one that resets to what it
+    /// was issued with.
+    pub default_value: Option<Object>,
+
     #[pdf_key("Parent")]
     /// `/Parent`: the field this widget belongs to, when they are separate objects.
     pub parent: Option<Handle<Object>>,
@@ -548,6 +660,14 @@ pub fn entries_read_for(subtype: &str) -> Vec<&'static str> {
         "Square" | "Circle" => keys.extend(SquareCircleEntries::pdf_keys()),
         "Movie" => keys.extend(MovieEntries::pdf_keys()),
         "Stamp" => keys.extend(StampEntries::pdf_keys()),
+        "Redact" => keys.extend(RedactEntries::pdf_keys()),
+        "Polygon" | "PolyLine" => keys.extend(PolygonEntries::pdf_keys()),
+        "Highlight" | "Underline" | "Squiggly" | "StrikeOut" => {
+            keys.extend(TextMarkupEntries::pdf_keys());
+        }
+        "FileAttachment" => keys.extend(FileAttachmentEntries::pdf_keys()),
+        "Caret" => keys.extend(CaretEntries::pdf_keys()),
+        "Watermark" => keys.extend(WatermarkEntries::pdf_keys()),
         "Widget" => {
             keys.extend(WidgetEntries::pdf_keys());
             keys.extend(FIELD_ENTRIES_READ);
