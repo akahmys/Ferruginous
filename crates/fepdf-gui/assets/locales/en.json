@@ -246,5 +246,17 @@
   "tools_pick_files": "Choose files…",
   "tools_no_document": "Open a document first.",
   "cmd_document_tools": "Document tools",
-  "cmd_document_tools_desc": "Page labels, Bates numbering, tags, standards, attachments, geospatial anchors, portfolios"
+  "cmd_document_tools_desc": "Page labels, Bates numbering, tags, standards, attachments, geospatial anchors, portfolios",
+  "tab_what_it_does": "What it does",
+  "survey_automatic": "Runs on its own",
+  "survey_automatic_none": "Nothing runs until the reader asks for it.",
+  "survey_capabilities": "What this document can do",
+  "survey_capabilities_none": "It carries no action at all.",
+  "survey_protection": "Protection",
+  "survey_unprotected": "Not encrypted.",
+  "survey_permissions": "Permissions",
+  "survey_coverage": "How much of it this engine reads",
+  "survey_coverage_note": "A proxy for understanding, not a measure of it: it says nothing about whether what was read was read correctly (ADR-0019).",
+  "survey_unreadable": "objects in an action position that do not read as an action",
+  "tooltip_what_it_does": "What it does"
 }

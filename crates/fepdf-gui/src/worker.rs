@@ -54,6 +54,12 @@ pub enum WorkerRequest {
         /// What to say when it worked, in the reader's language.
         done: String,
     },
+    /// What this document is and what it does, computed when the panel asks.
+    ///
+    /// **On demand rather than at open.** `Coverage::of` reads the file a second time,
+    /// which on the larger samples is as much again as opening it; a reader who never
+    /// opens the panel should not pay for it.
+    Survey,
     Audit,
     /// 6.3.2.3: a person turning a layer on or off. Not a document edit — the worker
     /// re-renders and the saved bytes are unchanged.
@@ -136,6 +142,13 @@ pub enum WorkerResponse {
     OperationApplied {
         message: String,
     },
+    /// The answer to `Survey`.
+    Surveyed {
+        /// What runs without the reader doing anything, and what the document can do.
+        actions: Box<fepdf::ActionReport>,
+        /// The share of what the file presents whose contents the engine reads.
+        coverage: Option<fepdf::Coverage>,
+    },
     DocumentSaved {
         path: std::path::PathBuf,
         /// What the write cost, in the document's own terms. Empty for most files;
@@ -149,6 +162,9 @@ pub enum WorkerResponse {
 pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: egui::Context) {
     // RR-15 Limit: GUI - main routing message loop dispatcher for background worker thread
     let mut current_doc: Option<PdfDocument> = None;
+    // The bytes the open read. `Bytes` is refcounted and the arena already points into
+    // this buffer, so holding it costs a pointer rather than the file.
+    let mut current_bytes: Option<Bytes> = None;
     let system_fonts = VelloBackend::load_system_fonts();
     let mut text_cache = std::collections::BTreeMap::new();
     let mut spans_cache = std::collections::BTreeMap::new();
@@ -158,6 +174,7 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
             WorkerRequest::Open { data, name, password } => {
                 text_cache.clear();
                 spans_cache.clear();
+                current_bytes = Some(data.clone());
                 current_doc = handle_open(data, name, password, &tx);
                 ctx.request_repaint();
             }
@@ -226,6 +243,17 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                             let _ = tx.send(WorkerResponse::Error(format!("{e:?}")));
                         }
                     }
+                }
+                ctx.request_repaint();
+            }
+            WorkerRequest::Survey => {
+                if let Some(doc) = current_doc.as_ref() {
+                    let actions = fepdf::ActionReport::of(doc.inner()).unwrap_or_default();
+                    // Recorded as absent rather than as zero: a coverage this could not
+                    // compute and a document that presents nothing are different answers.
+                    let coverage = current_bytes.as_ref().and_then(|b| fepdf::Coverage::of(b).ok());
+                    let _ =
+                        tx.send(WorkerResponse::Surveyed { actions: Box::new(actions), coverage });
                 }
                 ctx.request_repaint();
             }

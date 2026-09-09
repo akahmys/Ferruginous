@@ -70,6 +70,8 @@ impl FepdfApp {
         self.doc_permissions = None;
         self.doc_page_sizes.clear();
         self.doc_fonts.clear();
+        // The last document's answers are not this one's.
+        self.survey = crate::sidebar::what_it_does::Survey::default();
         self.reset_view();
         let _ = self.tx_worker.send(WorkerRequest::Open { data, name, password: None });
         ctx.request_repaint();

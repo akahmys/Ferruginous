@@ -89,6 +89,19 @@ impl FepdfApp {
 
                         ui.add_space(2.0);
 
+                        // What the document does when opened, and what protects it.
+                        let is_does = self.active_drawer == ActiveDrawer::WhatItDoes;
+                        let does_btn = icon_bar_btn("\u{e8e8}", is_does);
+                        let tip_does =
+                            self.locale_mgr.tr(&self.active_language, "tooltip_what_it_does");
+                        if ui.add(does_btn).on_hover_text(tip_does).clicked() {
+                            self.active_drawer =
+                                if is_does { ActiveDrawer::None } else { ActiveDrawer::WhatItDoes };
+                            self.caliper_tool.is_active = false;
+                        }
+
+                        ui.add_space(2.0);
+
                         // Accessibility & Tags
                         let is_acc = self.active_drawer == ActiveDrawer::Accessibility;
                         let acc_btn = icon_bar_btn("\u{e33c}", is_acc);
@@ -191,6 +204,7 @@ impl FepdfApp {
                         ActiveDrawer::DocumentInfo => {
                             locale_mgr.tr(active_lang, "tab_doc_info_decisions")
                         }
+                        ActiveDrawer::WhatItDoes => locale_mgr.tr(active_lang, "tab_what_it_does"),
                         ActiveDrawer::Accessibility => {
                             locale_mgr.tr(active_lang, "tab_accessibility")
                         }
@@ -216,6 +230,21 @@ impl FepdfApp {
                     ui,
                     |ui| match self.active_drawer {
                         ActiveDrawer::None => {}
+                        ActiveDrawer::WhatItDoes => {
+                            let locale = &self.locale_mgr;
+                            let lang = &self.active_language;
+                            let tx = self.tx_worker.clone();
+                            crate::sidebar::what_it_does::show(
+                                ui,
+                                &mut self.survey,
+                                self.doc_security_method.as_ref(),
+                                self.doc_permissions,
+                                &|key| locale.tr(lang, key),
+                                &|| {
+                                    let _ = tx.send(crate::worker::WorkerRequest::Survey);
+                                },
+                            );
+                        }
                         ActiveDrawer::DocumentInfo => {
                             crate::sidebar::document_info::show_document_info(
                                 ui,

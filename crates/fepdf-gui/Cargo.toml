@@ -27,5 +27,8 @@ env_logger.workspace = true
 wgpu.workspace = true
 regex.workspace = true
 
+[dev-dependencies]
+fepdf-fixtures.workspace = true
+
 [lints]
 workspace = true

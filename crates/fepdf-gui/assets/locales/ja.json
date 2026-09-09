@@ -246,5 +246,17 @@
   "tools_pick_files": "ファイルを選ぶ…",
   "tools_no_document": "先に文書を開いてください。",
   "cmd_document_tools": "文書ツール",
-  "cmd_document_tools_desc": "ページラベル、Bates 番号、タグ、準拠標準、添付、地理空間アンカー、ポートフォリオ"
+  "cmd_document_tools_desc": "ページラベル、Bates 番号、タグ、準拠標準、添付、地理空間アンカー、ポートフォリオ",
+  "tab_what_it_does": "この文書がすること",
+  "survey_automatic": "自動で走るもの",
+  "survey_automatic_none": "読み手が求めるまで何も走りません。",
+  "survey_capabilities": "この文書ができること",
+  "survey_capabilities_none": "アクションを一つも持っていません。",
+  "survey_protection": "保護",
+  "survey_unprotected": "暗号化されていません。",
+  "survey_permissions": "許可",
+  "survey_coverage": "このエンジンが読めている割合",
+  "survey_coverage_note": "理解の代理指標であって理解の尺度ではありません。読めたものが正しく読めたかについては何も言いません（ADR-0019）。",
+  "survey_unreadable": "アクションの位置にあってアクションとして読めないオブジェクト",
+  "tooltip_what_it_does": "この文書がすること"
 }

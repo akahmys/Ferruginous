@@ -3,6 +3,7 @@ pub mod document_info;
 pub mod layers;
 pub mod structure_tree;
 pub mod ust_registry;
+pub mod what_it_does;
 
 pub use ust_registry::{DragRelation, USTNode, USTRegistry};
 
@@ -15,6 +16,8 @@ pub enum ActiveDrawer {
     #[default]
     None,
     DocumentInfo,
+    /// What the document does when opened, and what protects it.
+    WhatItDoes,
     Accessibility,
     Redaction,
     Caliper,

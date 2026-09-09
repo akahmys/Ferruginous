@@ -43,6 +43,7 @@ pub struct FepdfApp {
     /// Set while a document waits for its password; `None` the rest of the time.
     pub locked: Option<LockedDocument>,
     pub show_document_tools: bool,
+    pub survey: crate::sidebar::what_it_does::Survey,
     pub tools: crate::document_tools::ToolState,
 
     pub total_pages: usize,
@@ -226,6 +227,7 @@ impl FepdfApp {
             pages_left_out: 0,
             locked: None,
             show_document_tools: false,
+            survey: crate::sidebar::what_it_does::Survey::default(),
             tools: crate::document_tools::ToolState::default(),
         }
     }
@@ -337,6 +339,11 @@ impl FepdfApp {
                 }
                 WorkerResponse::AuditFindings { findings } => {
                     self.ust_registry.audit_findings = findings;
+                    ctx.request_repaint();
+                }
+                WorkerResponse::Surveyed { actions, coverage } => {
+                    self.survey.actions = Some(actions);
+                    self.survey.coverage = coverage;
                     ctx.request_repaint();
                 }
                 WorkerResponse::OperationApplied { message } => {
