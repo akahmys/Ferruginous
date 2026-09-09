@@ -2992,6 +2992,10 @@ twin comes last, because everything above it strengthens the net that work needs
 
 ### What Phase U did not close
 
+Three entries, **one of them still open**. The other two are struck through because they
+were taken; they stay here because both entries were wrong about their own size — one
+about what it was worth, one about how much of it was left.
+
 - **`fepdf-model::color::ColorSpace` has no user outside its own module.** Measured
   2026-09-10 while implementing colour management: no crate, test or example names the
   type, `from_icc` or `transform`, and what rendering resolves is `ResolvedColorSpace`.
@@ -3006,18 +3010,20 @@ twin comes last, because everything above it strengthens the net that work needs
   Deleting a public type is its own decision and does not belong inside the commit that
   found it.
 
-
-Two things, both named rather than left to be rediscovered.
-
-- **A calculating form is built by hand in five test files** — `fepdf-mcp`'s
+- ~~**A calculating form is built by hand in five test files**~~ **— four of the five
+  moved, and the fifth is not the same shape.** Re-derived 2026-09-10: `fepdf-mcp`'s
   `calculation_scope_test.rs` and `mcp_server_tests.rs`, `fepdf-script`'s
-  `calculate_test.rs`, and `fepdf`'s `calculation_order_test.rs` and
-  `form_appearance_test.rs`. One of the five was added by this phase. It is the same
-  shape `crates/fepdf-fixtures` exists for and it crosses crates, so it belongs there;
-  it is small, and nothing depends on it being done first.
+  `calculate_test.rs` and `fepdf`'s `calculation_order_test.rs` all call
+  `fepdf_fixtures::acroform` now. `form_appearance_test.rs` still writes its own, and
+  stays that way: it needs `/Q` quadding, a `/DR` carrying Helvetica, `/P` on the widget
+  and a 300x100 `/MediaBox`, none of which `acroform` takes. Adding four parameters for
+  one caller is generality with one user, and one instance is not duplication.
 
       ```text
-      grep -rl "/CO \[" crates/*/tests/*.rs | wc -l   # 5
+      grep -rl '/CO \[' crates --include='*.rs'
+      # crates/fepdf-fixtures/src/lib.rs          — the shared builder
+      # crates/fepdf-model/examples/make_script_fixtures.rs
+      # crates/fepdf/tests/form_appearance_test.rs — the one that stays
       ```
 
 - ~~**`[profile.dev.package]` is not tuned**~~ **— taken, and it was worth more than the
