@@ -7,9 +7,10 @@
 //! ICC-enabled. `moxcms` had been a dependency throughout.
 //!
 //! **The first attempt at this implemented it on the wrong type.** `color::ColorSpace`
-//! has an `ICCBased(Arc<ColorProfile>)` variant and a `transform` method, and nothing
-//! outside its own module refers to either: the tests passed and no page changed. The
-//! question that caught it was "what calls this", which no test asks.
+//! had an `ICCBased(Arc<ColorProfile>)` variant and a `transform` method, and nothing
+//! outside its own module referred to either: the tests passed and no page changed. The
+//! question that caught it was "what calls this", which no test asks — and the type it
+//! caught is gone, so this one runs against what rendering resolves.
 
 use fepdf_model::PdfArena;
 use fepdf_model::color::ResolvedColorSpace;

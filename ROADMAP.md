@@ -2992,23 +2992,31 @@ twin comes last, because everything above it strengthens the net that work needs
 
 ### What Phase U did not close
 
-Three entries, **one of them still open**. The other two are struck through because they
-were taken; they stay here because both entries were wrong about their own size — one
-about what it was worth, one about how much of it was left.
+Three entries, **all three now taken**. They stay struck through rather than deleted
+because two of them were wrong about their own size — one about what it was worth, one
+about how much of it was left — and that is the part worth keeping.
 
-- **`fepdf-model::color::ColorSpace` has no user outside its own module.** Measured
-  2026-09-10 while implementing colour management: no crate, test or example names the
-  type, `from_icc` or `transform`, and what rendering resolves is `ResolvedColorSpace`.
-  The first attempt at 10.3 was written against it, passed three unit tests and changed
-  no page.
+- ~~**`fepdf-model::color::ColorSpace` has no user outside its own module**~~ **— taken,
+  2026-09-10.** The type was a twelve-variant enum duplicating `ColorSpaceKind`, differing
+  from it only in that `ICCBased` carried an `Arc<ColorProfile>` — which its `transform`
+  bound as `_profile` and discarded, under a comment reading "In a real implementation:
+  map through ICC profile". Eight of its twelve arms returned `Color::Gray(0.0)`, so a
+  `/Separation` or a `/CalRGB` came out black rather than unresolved. What rendering
+  resolves is `ResolvedColorSpace`, which answers `None` instead and lets the caller
+  record what it fell back to.
+
+  This is the type the first attempt at 10.3 was written against: three unit tests passed
+  and no page changed. `from_icc` was the only working code in it, eight lines, and
+  `ResolvedColorSpace::from_icc` already does the same thing where a colour can reach it.
 
       ```text
-      grep -rn "\bColorSpace\b" crates/*/src --include='*.rs' \
-        | grep -v "ColorSpaceKind\|ResolvedColorSpace\|filters/\|/color/mod.rs"   # empty
+      grep -rn "enum ColorSpace\b" crates --include='*.rs'   # empty
       ```
 
-  Deleting a public type is its own decision and does not belong inside the commit that
-  found it.
+  The bare-name grep this entry used to carry is no longer the check: with the type gone,
+  every remaining `ColorSpace` in the workspace is the PDF name `/ColorSpace` in a string,
+  or one of the two `ColorSpace` enums `hayro_jpeg2000` and the JPEG decoder export. The
+  exclusion list that made it read "empty" was doing most of the work.
 
 - ~~**A calculating form is built by hand in five test files**~~ **— four of the five
   moved, and the fifth is not the same shape.** Re-derived 2026-09-10: `fepdf-mcp`'s

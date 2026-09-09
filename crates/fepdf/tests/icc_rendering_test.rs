@@ -2,9 +2,9 @@
 //!
 //! **The reachability test, and it is the one that was missing.** A first attempt at
 //! colour management put the transform on `color::ColorSpace`, a type nothing outside its
-//! own module refers to: three unit tests passed and not one page changed. What catches
-//! that is not a test of the function — it is a test that renders a page and looks at the
-//! colour the backend was handed.
+//! own module referred to: three unit tests passed and not one page changed. That type
+//! has since been deleted. What catches such a thing is not a test of the function — it
+//! is a test that renders a page and looks at the colour the backend was handed.
 //!
 //! Display P3 rather than sRGB, because sRGB through sRGB is the identity and would pass
 //! whether the profile was consulted or not.
