@@ -57,6 +57,11 @@ impl CommandPalette {
                 let cmd_redaction_studio_desc =
                     app.locale_mgr.tr(&app.active_language, "cmd_redaction_studio_desc");
 
+                let cmd_document_tools =
+                    app.locale_mgr.tr(&app.active_language, "cmd_document_tools");
+                let cmd_document_tools_desc =
+                    app.locale_mgr.tr(&app.active_language, "cmd_document_tools_desc");
+
                 let commands = vec![
                     (&cmd_load_pdf, &cmd_load_pdf_desc, "Load PDF"),
                     (&cmd_reset_view, &cmd_reset_view_desc, "Reset View"),
@@ -66,6 +71,7 @@ impl CommandPalette {
                     (&cmd_export_pdf, &cmd_export_pdf_desc, "Export PDF"),
                     (&cmd_reading_order, &cmd_reading_order_desc, "Reading Order"),
                     (&cmd_redaction_studio, &cmd_redaction_studio_desc, "Redaction Studio"),
+                    (&cmd_document_tools, &cmd_document_tools_desc, "Document Tools"),
                 ];
 
                 for (cmd_name, cmd_desc, cmd_action) in commands {
@@ -120,6 +126,9 @@ impl CommandPalette {
                                 } else {
                                     crate::sidebar::ActiveDrawer::Redaction
                                 };
+                            }
+                            "Document Tools" => {
+                                app.show_document_tools = true;
                             }
                             _ => {}
                         }

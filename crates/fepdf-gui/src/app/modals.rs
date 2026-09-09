@@ -320,6 +320,8 @@ impl FepdfApp {
             }
         }
 
+        crate::document_tools::show(self, ctx);
+
         // Show About Modal
         self.show_about_modal_window(ctx);
 

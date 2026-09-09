@@ -43,6 +43,17 @@ pub enum WorkerRequest {
         key_path: Option<std::path::PathBuf>,
         signature_position: Option<(usize, [f32; 4])>,
     },
+    /// An operation the reader asked for, already translated (Rule D).
+    ///
+    /// **One variant rather than one per operation.** The vocabulary has thirty and this
+    /// crate reached five of them; giving each a request would have made the worker the
+    /// place operations are enumerated, which is `fepdf-doc`'s job. `fepdf-mcp` sends
+    /// them the same way. `Box` because the enum is large and this message is rare.
+    Apply {
+        operation: Box<fepdf::Operation>,
+        /// What to say when it worked, in the reader's language.
+        done: String,
+    },
     Audit,
     /// 6.3.2.3: a person turning a layer on or off. Not a document edit — the worker
     /// re-renders and the saved bytes are unchanged.
@@ -121,6 +132,10 @@ pub enum WorkerResponse {
         method: String,
         retried: bool,
     },
+    /// An `Apply` succeeded, with what to tell the reader.
+    OperationApplied {
+        message: String,
+    },
     DocumentSaved {
         path: std::path::PathBuf,
         /// What the write cost, in the document's own terms. Empty for most files;
@@ -194,6 +209,24 @@ pub fn run_worker(rx: Receiver<WorkerRequest>, tx: Sender<WorkerResponse>, ctx: 
                     signature_position,
                     &tx,
                 );
+                ctx.request_repaint();
+            }
+            WorkerRequest::Apply { operation, done } => {
+                text_cache.clear();
+                spans_cache.clear();
+                if let Some(ref mut doc) = current_doc {
+                    match doc.apply(*operation) {
+                        Ok(()) => {
+                            let _ = tx.send(WorkerResponse::OperationApplied { message: done });
+                        }
+                        // Reported, not logged: a reader who asked for something and got
+                        // nothing needs to be told, and `log::error!` reaches a terminal
+                        // they are not looking at.
+                        Err(e) => {
+                            let _ = tx.send(WorkerResponse::Error(format!("{e:?}")));
+                        }
+                    }
+                }
                 ctx.request_repaint();
             }
             WorkerRequest::Audit => {

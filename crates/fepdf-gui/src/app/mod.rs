@@ -42,6 +42,8 @@ pub struct FepdfApp {
     pub rx_worker: Receiver<WorkerResponse>,
     /// Set while a document waits for its password; `None` the rest of the time.
     pub locked: Option<LockedDocument>,
+    pub show_document_tools: bool,
+    pub tools: crate::document_tools::ToolState,
 
     pub total_pages: usize,
     pub page_layouts: Vec<PageLayout>,
@@ -223,6 +225,8 @@ impl FepdfApp {
             doc_decisions: Vec::new(),
             pages_left_out: 0,
             locked: None,
+            show_document_tools: false,
+            tools: crate::document_tools::ToolState::default(),
         }
     }
 
@@ -333,6 +337,18 @@ impl FepdfApp {
                 }
                 WorkerResponse::AuditFindings { findings } => {
                     self.ust_registry.audit_findings = findings;
+                    ctx.request_repaint();
+                }
+                WorkerResponse::OperationApplied { message } => {
+                    // The same field a save reports through: it is the one notice line
+                    // this window has, and calling it `error` is the misnomer rather
+                    // than this being a misuse of it.
+                    self.error = Some(message);
+                    // The pages the operation moved are on screen, and every cached scene
+                    // predates it.
+                    self.scenes.clear();
+                    self.raw_texts.clear();
+                    self.page_spans.clear();
                     ctx.request_repaint();
                 }
                 WorkerResponse::DocumentSaved { path, notices } => {
