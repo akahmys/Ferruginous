@@ -61,6 +61,16 @@ pub enum ColorSpaceKind {
 
 /// Represents a resolved PDF Color Space with associated resources.
 #[derive(Debug, Clone)]
+/// **Nothing outside this module refers to this type.** Measured 2026-09-10: no crate,
+/// test or example names `ColorSpace`, `ColorSpace::from_icc` or `ColorSpace::transform`,
+/// and the space rendering actually resolves is [`ResolvedColorSpace`]. Its `ICCBased`
+/// branch read "In a real implementation: map through ICC profile" for as long as it
+/// existed, and implementing it there changes no page — which is how a first attempt at
+/// colour management passed three tests and moved nothing.
+///
+/// Kept for one commit rather than deleted with the change that found it: removing a
+/// public type is its own decision, and doing it inside a colour-management commit would
+/// bury it.
 pub enum ColorSpace {
     /// DeviceGray.
     DeviceGray,

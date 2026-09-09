@@ -138,7 +138,7 @@ survive that test as refusals — nothing here depends on them, and both are dep
 | **PDF 2.0 additions** | Re-derived against all 524 files, 0 unreadable. [↓](#pdf-20-additions) |
 | **8** Graphics | Optional content honoured, tint transforms and shading functions evaluated. All five shading types read, Type 1 as a sampled grid. [↓](#8-graphics) |
 | **9** Text | Extraction loses **1,137 glyphs of 16,321,270**, from 85,982, and all of them are named. [↓](#9-text) |
-| **10** Rendering | Both of 6.3.2.2's `shall`s met. Not colour managed. [↓](#10-rendering) |
+| **10** Rendering | Both of 6.3.2.2's `shall`s met. `[/ICCBased …]` colours go through their profile (10.3); `/DeviceCMYK` without one follows 10.4.2.1, which 8.6.4.4 leaves device-dependent. [↓](#10-rendering) |
 | **11** Transparency | Blend modes, constant alpha and soft masks all reach the backend. [↓](#11-transparency) |
 | **12** Interactive features | Read and written. 15 entries have no reader: eleven are clause 13, which is declined, and four are `/Redact` keys written on a `/Stamp`, which no table defines. [↓](#12-interactive-features) |
 | **13** Multimedia | Declined, and not a gap: 13.4 is deprecated in 2.0 and reading it would be building for a subsystem the standard is retiring. The corpus does carry it — `/3D` ten times, `/Movie` five, `/RichMedia` three — which changes the premise and not the refusal. |
@@ -2991,6 +2991,21 @@ twin comes last, because everything above it strengthens the net that work needs
       writing prose against a count rather than against a defect.
 
 ### What Phase U did not close
+
+- **`fepdf-model::color::ColorSpace` has no user outside its own module.** Measured
+  2026-09-10 while implementing colour management: no crate, test or example names the
+  type, `from_icc` or `transform`, and what rendering resolves is `ResolvedColorSpace`.
+  The first attempt at 10.3 was written against it, passed three unit tests and changed
+  no page.
+
+      ```text
+      grep -rn "\bColorSpace\b" crates/*/src --include='*.rs' \
+        | grep -v "ColorSpaceKind\|ResolvedColorSpace\|filters/\|/color/mod.rs"   # empty
+      ```
+
+  Deleting a public type is its own decision and does not belong inside the commit that
+  found it.
+
 
 Two things, both named rather than left to be rediscovered.
 

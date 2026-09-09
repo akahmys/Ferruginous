@@ -45,6 +45,8 @@ env_logger.workspace = true
 # `backend` is what lets `examples/glyph_loss.rs` reach the recorder, which a module under
 # `tests/` could not be.
 fepdf-fixtures = { workspace = true, features = ["backend"] }
+# The reachability test for colour management builds a Display P3 profile to render with.
+moxcms.workspace = true
 
 [features]
 default = []
